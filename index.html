@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Junior Astronaut – Mission Control</title>
+  <meta name="description" content="A browser game for kids aged 7–12: run a Moon or Mars base, share limited power, and survive real NASA solar storms. Team Pheonix – NASA Space Apps Challenge 2026.">
+  <meta name="theme-color" content="#0d0a24">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Nunito:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="sky" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <button id="btn-home" class="brand" aria-label="Go to main menu">
+      <span class="brand-mark" id="brand-mark"></span>
+      <span>Junior Astronaut<small>Mission Control</small></span>
+    </button>
+    <button id="btn-read" class="btn sm" aria-pressed="false" aria-label="Read aloud">Read aloud: off</button>
+  </header>
+
+  <main id="app" aria-live="polite"></main>
+
+  <div id="popup" class="popup" role="dialog" aria-modal="true" aria-labelledby="popup-title" hidden>
+    <div class="popup-box">
+      <span class="label">Space word</span>
+      <h3 id="popup-title"></h3>
+      <p></p>
+      <button id="popup-close" class="btn primary">Got it</button>
+    </div>
+  </div>
+
+  <footer>TEAM PHEONIX · NASA SPACE APPS CHALLENGE 2026 · USES NASA OPEN DATA · NOT AN OFFICIAL NASA PRODUCT</footer>
+
+  <script src="js/config.js"></script>
+  <script src="js/icons.js"></script>
+  <script src="js/scene.js"></script>
+  <script src="js/data-events.js"></script>
+  <script src="js/donki-archive.js"></script>
+  <script src="js/donki.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
