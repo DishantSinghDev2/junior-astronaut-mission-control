@@ -65,7 +65,7 @@ python3 tools/fetch_donki_archive.py YOUR_KEY   # free key from https://api.nasa
 Note: DONKI allows at most **60 days per request**. In Nov 2026 the DONKI **FLR (flare)** endpoint on api.nasa.gov returned 404 errors, so we use the **CME** endpoint, with SEP links taken from each CME's linked events.
 
 ### API key
-`js/config.js` uses `DEMO_KEY` (about 10 requests per hour). For the demo, get a free key at https://api.nasa.gov (1,000/hour) and paste it into `js/config.js`.
+`js/config.js` holds the team's free api.nasa.gov key. It is visible in the page source; that's normal for NASA open-data keys, which only control rate limits. If it stops working, replace it with `DEMO_KEY` (about 10 requests per hour) or a new free key from https://api.nasa.gov.
 Live results are cached for 1 hour in the browser tab, so each player uses only 1 request.
 
 ## 📁 Files
