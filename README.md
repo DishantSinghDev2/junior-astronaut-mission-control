@@ -91,6 +91,9 @@ Fonts: Bricolage Grotesque (headings), Nunito (body), Space Mono (data), from Go
 ## ♿ Accessibility
 Simple English · tap any underlined word for a kid-friendly explanation · 🔊 Read-aloud button (uses the browser's voice) · big buttons and keyboard support · works on phones · respects "reduce motion".
 
+## 🔁 Updating the live site
+After changing files, bump the `?v=` number on the script/style links in `index.html` (e.g. `?v=3` → `?v=4`), then commit and push. GitHub Pages lets browsers cache files for 10 minutes, and the new number makes them load the fresh files.
+
 ## ✏️ How to add a new event
 Open `js/data-events.js`, copy one event block, and change the text and `effects`. The list of effect keys is at the top of the file. Make sure **every choice has a cost**: NASA asks for no "free" safe option.
 
