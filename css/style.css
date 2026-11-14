@@ -496,3 +496,8 @@ svg.wires { width: 100%; display: block; touch-action: none; }
   .cine-title { font-size: 2.6rem; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+.vid-box { width: min(920px, 92vw); text-align: center; }
+.vid-box h2 { margin: 0 0 .8rem; font: 800 1.3rem var(--f-disp); letter-spacing: .12em; text-transform: uppercase; }
+.vid-box video { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 12px; border: 1px solid var(--line-2); box-shadow: 0 0 30px rgba(60, 160, 255, .3); }
+.vid-note { margin: .6rem 0 1rem; color: var(--dim, #9bb4cc); font-size: .95rem; }

@@ -79,3 +79,7 @@ tools/                  archive fetcher + tiny local server
 
 ---
 Made by Team Pheonix with AI-assisted coding. Every team member should read, test, and understand the code before submitting. Not an official NASA product.
+
+## Tutorial video
+
+`assets/video/how-to-play.mp4` (1 min 07 s, 1280x720) is a narrated how-to-play video. Its footage is rendered by the game's own 3D engine; the callouts are drawn on top, and the voice-over is ElevenLabs (Atlas). It opens from the title menu: **Watch tutorial**.

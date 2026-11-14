@@ -803,7 +803,7 @@ window.World = (() => {
     snapshot, hero, HERO, texturesReady,
     setQuality(q) { if (!renderer) return; sun.castShadow = q === "high"; renderer.setPixelRatio(q === "high" ? Math.min(2, window.devicePixelRatio || 1) : 1); resize(); },
     preload, init, reset, step, draw, resize, keys, burst, where, nearest, current,
-    get player() { return P; }, get rover() { return rover; }, get objects() { return objects; },
+    get camera() { return camera; }, get player() { return P; }, get rover() { return rover; }, get objects() { return objects; },
     obj: id => objects.find(o => o.id === id),
     setTarget(x, y) { if (!P) return; if (x === null) { P.target = null; P.path = null; } else goTo(x, y); },
     setCine(c) { cine = c; if (c && c.jump) { focusV = null; heroPos = null; } },

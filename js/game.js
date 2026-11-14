@@ -120,6 +120,7 @@
           <button class="t-item primary" data-go="start">${I("play")} Start mission</button>
           <button class="t-item" data-go="sunwatch">${I("sun")} Sun Watch</button>
           <button class="t-item" data-go="howto">${I("book-open")} How to play</button>
+          <button class="t-item" data-go="video">${I("sparkles")} Watch tutorial</button>
           <button class="t-item" data-go="sources">${I("satellite")} NASA data</button>
           <button class="t-item" data-act="settings">${I("settings")} Settings</button>
         </nav>
@@ -192,11 +193,12 @@
           <li><span class="dot" style="background:#ff4d4d">${I("sun")}</span><div><b>Real solar storms are coming</b><span>They come from NASA's DONKI records. When the alarm sounds, get inside the Storm Shelter!</span></div></li>
           <li><span class="dot" style="background:#2ecc71">${I("flask-conical")}</span><div><b>Do science</b><span>Collect purple rocks, study them in the Lab, and beam the data home from the Radio Dish.</span></div></li>
         </ul>` },
-      { title: "Your three meters", body: `<ul>
+      { title: "Your four meters", body: `<ul>
           <li><span class="dot" style="background:#7cc4ff">${I("wind")}</span><div><b>Life Support</b><span>Air and water for the crew</span></div></li>
           <li><span class="dot" style="background:#ffd54a">${I("zap")}</span><div><b>Power</b><span>Electricity for the whole base</span></div></li>
           <li><span class="dot" style="background:#ff6b35">${I("shield")}</span><div><b>Shielding</b><span>Protection from harmful space rays</span></div></li>
-        </ul><p class="goal">Keep all three above zero.</p>` },
+          <li><span class="dot" style="background:#9dff6a">${I("sprout")}</span><div><b>Food</b><span>Crops from the greenhouse</span></div></li>
+        </ul><p class="goal">Keep all four above zero.</p>` },
       { title: "How to play", body: `<ul>
           <li><span class="dot" style="background:#7cc4ff">${I("map-pin")}</span><div><b>Move and look</b><span><span class="key">W A S D</span> walk relative to the camera · drag to look around · <span class="key">Q</span> <span class="key">R</span> turn · click the ground to walk there · on a phone, drag the left side to move</span></div></li>
           <li><span class="dot" style="background:#ffd54a">${I("hand")}</span><div><b>Use things</b><span><span class="key">E</span> or <span class="key">Space</span> — or the big orange USE button. Some jobs need you to hold it.</span></div></li>
@@ -862,6 +864,13 @@
     mbox.className = "modal-box"; mbox.innerHTML = html; modal.hidden = false;
     const f = mbox.querySelector("button.btn-primary:not([disabled])"); if (f) f.focus({ preventScroll: true });
   }
+  function videoModal() {
+    openModal(`<div class="vid-box"><h2>How to play Lunar Outpost</h2>
+      <video src="assets/video/how-to-play.mp4" poster="assets/video/how-to-play.jpg" controls autoplay playsinline preload="auto"></video>
+      <p class="vid-note">1 min 07 s · voice-over by ElevenLabs · footage from the real game</p>
+      <button class="btn-primary" data-act="vidclose">Close</button></div>`);
+    Sound.stopVoice(); Sound.music(null);
+  }
   function closeModal() { Mini.stop(); modal.hidden = true; mbox.innerHTML = ""; SunWatch.close(); if (S) S.modalOpen = false; }
   function pauseMenu() {
     openModal(`<div class="pause"><h2>Paused</h2>
@@ -916,7 +925,7 @@
     }
     if (t.dataset.opt !== undefined && S && S.pending) { S.pending.sel = +t.dataset.opt; Sound.sfx("click"); return showChoices(); }
     const go = {
-      home, dest: destination, howto: () => briefing("howto"), sources, sunwatch: sunWatchModal,
+      home, dest: destination, howto: () => briefing("howto"), video: videoModal, sources, sunwatch: sunWatchModal,
       start: () => (introSeen ? destination() : story()), story,
       globe: () => globe(0),
       land: async () => { Sound.sfx("engine"); t.disabled = true; await Promise.race([Globe.landAnim(), wait(2500)]); briefing("start"); }
@@ -933,6 +942,7 @@
       case "minimize": closeModal(); return toast("Keep working! Tap the radio button when Earth replies.", 4500);
       case "reopen": if (S && S.pending) { openModal(""); showChoices(); } else if (S) toast(S.linkDay >= S.day ? "Earth link is strong today." : "The radio is quiet. Check in at the Radio Dish for early storm warnings."); return;
       case "next-day": return nextDay();
+      case "vidclose": closeModal(); Sound.music("explore"); return;
       case "resume": closeModal(); if (S && S.pending && !S.ask) { openModal(""); showChoices(); } return;
       case "close-sw": SunWatch.close(); modal.hidden = true; return;
       case "sunwatch": return sunWatchModal();
