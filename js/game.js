@@ -1,807 +1,838 @@
 /*
-  JUNIOR ASTRONAUT – MISSION CONTROL
-  Main game logic + screens. Each day (or sol on Mars):
-    1. Briefing   – messages from Earth, surprise storms, late answers
-    2. Incident   – a problem with 2–3 choices; every choice has a gain AND a cost
-    3. Power plan – share limited power between 5 systems
-    4. Report     – what changed and why
-  After 8 days -> Mission results.
+  LUNAR OUTPOST — game rules, screens and HUD.
+  Real-time: each day lasts DAY_LEN seconds. Meters change every moment:
+    Life Support  drains as the crew breathes; the water recycler (needs power) refills it
+    Power         solar panels charge it (less when dusty); every system uses it
+    Shielding     slowly wears down; solar storms smash it; the shield generator recharges it
+    Greenhouse    the crew eats food; plants grow (with power) and must be harvested
+  Keep Life Support, Power and Shielding above zero for 8 days.
 */
 (() => {
-  const D = window.GAME_DATA;
-  const C = window.CONFIG;
-  const app = document.getElementById("app");
-  const I = window.icon;
-
-  const SYSTEMS = [
-    { id: "life", icon: "wind", name: "Life Support", help: "Makes air and cleans water. Needs 3 to stay steady.", need: 3 },
-    { id: "green", icon: "sprout", name: "Greenhouse", help: "Grows food. The crew eats 2 power's worth a day.", need: 2 },
-    { id: "shield", icon: "shield", name: "Radiation Shield", help: "Each unit blocks 1 daily radiation and 20% of a storm.", need: 0 },
-    { id: "comms", icon: "radio-tower", name: "Radio to Earth", help: "Sends your science home. Earth can warn you of storms.", need: 1 },
-    { id: "science", icon: "flask-conical", name: "Science Lab", help: "Each unit collects 8 science data.", need: 0 }
-  ];
-  const CATS = {
-    life: "Life support", food: "Food production", power: "Power", science: "Science",
-    crew: "Crew health", supply: "Supply run", storm: "Radiation alert"
-  };
-  const MAX_UNITS = 4;
-  const BATTERY_MAX = 6;
+  const D = window.GAME_DATA, C = window.CONFIG;
+  const $ = s => document.querySelector(s);
+  const app = $("#app"), gameEl = $("#game"), modal = $("#modal"), mbox = modal.querySelector(".modal-box");
+  const DAY_LEN = 60;
   const DAYS = C.MISSION_DAYS;
+  const R = {
+    lifeDrain: 0.32, recycle: 0.24, leak: 0.7, hungry: 0.25,
+    foodDrain: 0.22, grow: 1 / 30, harvest: 24,
+    load: 0.55, wear: 0.06,
+    boostCost: 8, boostGain: 10, purifyCost: 7, purifyGain: 9, analyzeCost: 3, perRock: 6, sendCost: 4, askCost: 5
+  };
+  const METERS = [
+    { k: "life", name: "Life Support", color: "#7cc4ff" },
+    { k: "power", name: "Power", color: "#ffd54a" },
+    { k: "shield", name: "Shielding", color: "#ff6b35" }
+  ];
 
-  let S = null;            // game state
-  let readAloud = false;
+  let S = null;
+  let dest = "moon";
+  let last = 0, hudT = 0;
+  let toastTimer = null;
 
   /* ---------- helpers ---------- */
   const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-  const rand = arr => arr[Math.floor(Math.random() * arr.length)];
-  const sign = v => (v > 0 ? "+" + v : v < 0 ? "−" + Math.abs(v) : "0");
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const rand = a => a[Math.floor(Math.random() * a.length)];
+  const wait = ms => new Promise(r => setTimeout(r, ms));
   const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
-  const dayName = () => cap(S.place.dayWord);
-
-  function marsDelay() { return Comms.marsDelayMinutes(new Date()); }
-  function delayText() { return !S || S.placeId === "moon" ? "1.3 seconds" : `about ${S.delayMin} minutes`; }
-  function delayShort() { return !S || S.placeId === "moon" ? "1.3 s" : `~${S.delayMin} min`; }
-
-  // Fill placeholders, glossary words and power symbols
-  function fill(text) {
-    if (!text) return "";
-    let t = esc(text);
-    t = t.replace(/\{day\}/g, S ? S.place.dayWord : "day");
-    t = t.replace(/\{delay\}/g, delayText());
-    t = t.replace(/\{marsDelay\}/g, `about ${marsDelay()} minutes today`);
-    t = t.replace(/\[\[([^\]]+)\]\]/g, (m, w) => `<button class="term" data-term="${w}">${w}</button>`);
-    t = t.replace(/⚡/g, I("zap", "inline"));
-    return t;
+  function fill(t) {
+    let s = esc(t);
+    s = s.replace(/\{day\}/g, S ? S.place.dayWord : "day");
+    s = s.replace(/\[\[([^\]]+)\]\]/g, (m, w) => `<button class="term" data-term="${w}">${w}</button>`);
+    return s;
   }
-  function speak(text) {
-    if (!readAloud || !("speechSynthesis" in window)) return;
-    speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(String(text).replace(/\[\[|\]\]/g, "").replace(/⚡/g, " power"));
-    u.rate = 0.95;
-    speechSynthesis.speak(u);
-  }
+  const marsDelay = () => Comms.marsDelayMinutes(new Date());
+  const status = v => (v >= 60 ? ["Good", "st-good", "#2ecc71"] : v >= 30 ? ["Careful", "st-care", "#ffb020"] : ["Danger", "st-bad", "#ff4d4d"]);
   function render(html) {
     app.innerHTML = html;
-    window.scrollTo({ top: 0, behavior: "smooth" });
-    const h = app.querySelector("h1, h2");
-    if (h) { h.setAttribute("tabindex", "-1"); h.focus({ preventScroll: true }); }
-    // animate gauges from their previous value
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      app.querySelectorAll(".gauge .val[data-to]").forEach(el => (el.style.strokeDashoffset = el.dataset.to));
-    }));
-    if (S) S.prevMeters = { air: S.air, food: S.food, health: S.health };
+    app.hidden = false; gameEl.hidden = true; document.body.classList.remove("playing");
+    window.scrollTo(0, 0);
+    const h = app.querySelector("h1, h2"); if (h) { h.tabIndex = -1; h.focus({ preventScroll: true }); }
   }
-
-  /* ---------- data status chip ---------- */
-  function dataChip() {
+  function rocket(cls = "") {
+    return `<svg class="rocket ${cls}" viewBox="0 0 84 142" aria-hidden="true">
+      <path class="flame" d="M30 92 L54 92 L42 140 Z" fill="#ffb020"/>
+      <path d="M42 0 C56 12 62 30 62 46 L22 46 C22 30 28 12 42 0 Z" fill="#e2412d"/>
+      <rect x="22" y="44" width="40" height="44" fill="#fff"/>
+      <rect x="22" y="80" width="40" height="10" fill="#0e1645"/>
+      <circle cx="42" cy="60" r="10" fill="#7cc4ff"/>
+      <path d="M22 62 L0 98 L22 88 Z M62 62 L84 98 L62 88 Z" fill="#e2412d"/>
+    </svg>`;
+  }
+  function dataStatus() {
     const st = Donki.state;
-    const saved = window.DONKI_ARCHIVE ? window.DONKI_ARCHIVE.savedOn : "?";
-    if (st.status === "loading") return `<span class="chip"><span class="dot"></span>Connecting to NASA DONKI…</span>`;
-    if (st.status === "live") return `<span class="chip live"><span class="dot"></span>Live NASA space weather · ${st.live.length} CMEs in 60 days</span>`;
-    if (st.archive.length) return `<span class="chip archive"><span class="dot"></span>Archived NASA DONKI data · saved ${esc(saved)}</span>`;
-    return `<span class="chip warn"><span class="dot"></span>No NASA data · practice storms only</span>`;
+    if (st.status === "live") return `<span class="badge live">Live NASA DONKI · ${st.live.length} real CMEs in 60 days</span>`;
+    if (st.archive.length) return `<span class="badge arch">Archived NASA DONKI data · saved ${esc(window.DONKI_ARCHIVE.savedOn)}</span>`;
+    return `<span class="badge">No NASA data · practice storms</span>`;
   }
 
-  /* ================= MENU SCREENS ================= */
+  /* =========================================================
+     MENU SCREENS
+     ========================================================= */
+  async function loading() {
+    const fact = rand(["Radio signals take time to travel between Earth and space.", "The Moon's gravity is only 1/6 of Earth's.", "Water is great at blocking space radiation.", "A day on Mars is called a sol."]);
+    render(`<section class="screen center loading"><div>
+      ${rocket("float")}
+      <h1 class="title">Lunar Outpost</h1>
+      <div class="sub">Mission Control</div>
+      <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><i id="ld-bar"></i></div>
+      <p class="load-text" id="ld-text">Loading mission… 0%</p>
+      <div class="dyk">Did you know? ${esc(fact)}</div>
+    </div><div class="foot">Team Pheonix · NASA Space Apps Challenge 2026</div></section>`);
+    let p = 0;
+    const set = (v, msg) => {
+      p = Math.max(p, v);
+      const b = $("#ld-bar"), t = $("#ld-text");
+      if (b) { b.style.width = p + "%"; b.parentElement.setAttribute("aria-valuenow", Math.round(p)); }
+      if (t) t.textContent = msg || `Loading mission… ${Math.round(p)}%`;
+    };
+    const tick = setInterval(() => set(Math.min(88, p + 4)), 100);
+    const fonts = (document.fonts && document.fonts.ready) || Promise.resolve();
+    await Promise.all([fonts.then(() => set(35)), Donki.load().then(() => set(80, "Talking to NASA DONKI…")), wait(1300)]);
+    clearInterval(tick);
+    set(100);
+    await wait(350);
+    home();
+  }
+
   function home() {
-    S = null;
-    render(`
-      <section class="home">
-        ${scene("moon")}
+    stopGame();
+    render(`<section class="screen">
+      <div class="home">
+        <div class="home-art" aria-hidden="true"><div class="pad-shadow"></div><div class="pad"></div>${rocket("float")}</div>
         <div class="home-copy">
-          <span class="label">Team Pheonix · NASA Space Apps 2026</span>
-          <h1>Junior Astronaut <em>Mission Control</em></h1>
-          <p class="lead">Run a base on the Moon or Mars. Share your power, solve problems, and keep your crew safe for ${DAYS} days.</p>
-          <div class="home-actions">
-            <button class="btn primary lg" data-go="choose">${I("rocket")} Start mission</button>
-            <button class="btn lg" data-go="howto">${I("book-open")} How to play</button>
+          <h1>Lunar Outpost</h1>
+          <div class="tag-line">Junior Astronaut Mission Trainer</div>
+          <p class="q">Can you keep your crew safe?</p>
+          <div class="home-btns">
+            <button class="btn-primary" data-go="dest">Start mission</button>
+            <button class="btn-secondary" data-go="howto">How to play</button>
+            <button class="btn-secondary" data-go="sources">About NASA data</button>
           </div>
-          <div class="home-meta">
-            <span id="data-chip">${dataChip()}</span>
-            <button class="chip" data-go="sources">${I("satellite")} NASA data</button>
-            <button class="chip" data-go="glossary">${I("book-open")} Space words</button>
-          </div>
+          <div class="data-status">${dataStatus()}</div>
         </div>
-      </section>`);
-    speak("Junior Astronaut Mission Control. Press Start mission to begin.");
+      </div>
+      <div class="foot">Made by Team Pheonix for the NASA Space Apps Challenge 2026</div>
+    </section>`);
   }
 
-  function choose() {
-    const card = (p, diff) => `
-      <button class="place ${p.id}" data-start="${p.id}">
-        ${scene(p.id)}
-        <div class="place-body">
-          <div class="place-title">${planet(p.id)}
-            <div><span class="label">${p.id === "moon" ? "Lunar south pole" : "Red planet"}</span><h2>${p.name}</h2></div>
-          </div>
-          <p class="muted" style="margin:0">${esc(p.blurb)}</p>
-          <dl class="specs">
-            <div class="spec"><dt>Solar power</dt><dd>${p.solar} / ${p.dayWord}</dd></div>
-            <div class="spec"><dt>Radiation</dt><dd>${p.radiation} / ${p.dayWord}</dd></div>
-            <div class="spec"><dt>Radio delay</dt><dd>${p.id === "moon" ? "1.3 sec" : `~${marsDelay()} min`}</dd></div>
-            <div class="spec"><dt>Gravity</dt><dd>${p.id === "moon" ? "1/6 Earth" : "38% Earth"}</dd></div>
-          </dl>
-          <div class="difficulty">${[1, 2, 3].map(i => `<i class="${i <= diff ? "on" : ""}"></i>`).join("")} ${diff === 1 ? "Good first mission" : "Harder: less power, slow radio"}</div>
-        </div>
+  function destination() {
+    const card = id => {
+      const p = D.places[id];
+      return `<button class="dest-card ${dest === id ? "sel" : ""}" data-dest="${id}" aria-pressed="${dest === id}">
+        <div class="art">${scene(id)}</div>
+        <h2>${p.name}</h2>
+        <div>${p.tags.map(t => `<span class="tag">${t}</span>`).join("")}</div>
+        <p>${p.line}</p>
+        <div class="facts">Gravity ${p.gravityText} · Radio delay ${id === "moon" ? "1.3 seconds" : `about ${marsDelay()} minutes today`}</div>
       </button>`;
-    render(`
-      <header class="page-head">
-        <span class="label">Step 1</span>
-        <h1>Choose your base</h1>
-        <p>The Mars radio delay is worked out for today's real positions of Earth and Mars.</p>
-      </header>
-      <div class="places">${card(D.places.moon, 1)}${card(D.places.mars, 2)}</div>
-      <div class="back"><button class="btn ghost" data-go="home">${I("arrow-left")} Back</button></div>`);
-    speak("Choose your base. The Moon or Mars.");
+    };
+    render(`<section class="screen dest">
+      <button class="btn-secondary sm back-btn" data-go="home">Back</button>
+      <h1>Where will your crew live?</h1>
+      <div class="dests">${card("moon")}${card("mars")}</div>
+      <div class="next-row"><button class="btn-primary" data-go="brief">Next</button></div>
+    </section>`);
   }
 
-  function howto() {
-    render(`
-      <header class="page-head"><span class="label">Training</span><h1>How to play</h1></header>
-      <ol class="steps">
-        <li><h3>Keep 3 meters above zero</h3><p class="muted">Air &amp; Water, Food and Crew Health. If one hits zero, the crew must fly home.</p></li>
-        <li><h3>Solve one problem every day</h3><p class="muted">Every choice has a <span class="good">gain</span> and a <span class="bad">cost</span>. There is no perfect answer — that's real mission planning!</p></li>
-        <li><h3>Share your power</h3><p class="muted">The Sun gives you a few power units each day. Give them to your 5 systems:</p>
-          <ul class="sys-list">${SYSTEMS.map(s => `<li>${I(s.icon)}<span><b>${s.name}</b><br>${s.help}</span></li>`).join("")}</ul></li>
-        <li><h3>Save power in the battery</h3><p class="muted">Power you don't use charges the battery (up to ${BATTERY_MAX}). Use it on hard days.</p></li>
-        <li><h3>Watch out for real solar storms</h3><p class="muted">Storms come from real NASA records. If your radio is on, Earth warns you a day early.</p></li>
-        <li><h3>Send your science home</h3><p class="muted">Science only counts when it reaches Earth, so keep the radio on. Tap any <button class="term" data-term="sol">underlined word</button> to learn what it means.</p></li>
-      </ol>
-      <div class="actions back">
-        <button class="btn primary lg" data-go="choose">${I("rocket")} I'm ready</button>
-        <button class="btn ghost" data-go="home">${I("arrow-left")} Back</button>
-      </div>`);
-    speak("How to play. Keep air and water, food, and crew health above zero. Share your power between five systems. Every choice has a gain and a cost.");
+  function briefCards(placeId) {
+    const p = D.places[placeId];
+    return [
+      { title: "Your mission", body: `<ul>
+          <li><span class="dot" style="background:#ffd54a"></span><div><b>Command the ${placeId === "moon" ? "Moon" : "Mars"} outpost for ${DAYS} ${p.dayWord}s</b><span>Each ${p.dayWord} lasts one minute. Walk your astronaut to the machines that need help.</span></div></li>
+          <li><span class="dot" style="background:#ff4d4d"></span><div><b>Real solar storms are coming</b><span>They come from NASA's DONKI records. When the alert sounds, run to the Storm Shelter!</span></div></li>
+          <li><span class="dot" style="background:#2ecc71"></span><div><b>Collect science</b><span>Pick up rocks outside, study them in the Lab, and send the data home from the Radio Dish.</span></div></li>
+        </ul>` },
+      { title: "Your three meters", body: `<ul>
+          <li><span class="dot" style="background:#7cc4ff"></span><div><b>Life Support</b><span>Air and water for the crew</span></div></li>
+          <li><span class="dot" style="background:#ffd54a"></span><div><b>Power</b><span>Electricity for the whole base</span></div></li>
+          <li><span class="dot" style="background:#ff6b35"></span><div><b>Shielding</b><span>Protection from harmful space rays</span></div></li>
+        </ul><p class="goal">Keep all three above zero.</p>` },
+      { title: "How to move", body: `<ul>
+          <li><span class="dot" style="background:#7cc4ff"></span><div><b>Walk</b><span><span class="key">←</span><span class="key">→</span> or <span class="key">A</span><span class="key">D</span> — or tap where you want to go</span></div></li>
+          <li><span class="dot" style="background:#ffd54a"></span><div><b>Jump</b><span><span class="key">Space</span> or <span class="key">W</span>. Gravity here is ${p.gravityText}, so ${placeId === "moon" ? "you float high!" : "you jump higher than on Earth."}</span></div></li>
+          <li><span class="dot" style="background:#ff6b35"></span><div><b>Work</b><span>Stand at a machine and hold <span class="key">E</span> (the orange button on a phone or tablet)</span></div></li>
+        </ul>` }
+    ];
   }
-
-  function glossary() {
-    render(`
-      <header class="page-head"><span class="label">Dictionary</span><h1>Space words</h1></header>
-      <div class="words">${Object.entries(D.glossary).map(([k, v]) => `<article class="word"><h3>${esc(cap(k))}</h3><p>${esc(v)}</p></article>`).join("")}</div>
-      <div class="back"><button class="btn ghost" data-go="home">${I("arrow-left")} Back</button></div>`);
+  function briefing(mode, i = 0) {
+    const cards = briefCards(mode === "howto" ? "moon" : dest);
+    const c = cards[i];
+    const last = i === cards.length - 1;
+    render(`<section class="screen center"><div class="brief">
+      <div class="step">Briefing ${i + 1} of ${cards.length}</div>
+      <h2>${c.title}</h2>
+      ${c.body}
+      <div class="dots">${cards.map((_, j) => `<i class="${j === i ? "on" : ""}"></i>`).join("")}</div>
+      <div class="brief-nav">
+        <button class="btn-secondary" data-brief="${mode}:skip">${mode === "howto" ? "Close" : "Skip"}</button>
+        <button class="btn-primary" data-brief="${mode}:${last ? "end" : i + 1}">${last ? (mode === "howto" ? "Done" : "Launch!") : "Next"}</button>
+      </div>
+    </div></section>`);
   }
 
   function sources() {
-    const a = window.DONKI_ARCHIVE;
-    render(`
-      <header class="page-head"><span class="label">Scientific transparency</span><h1>NASA science sources</h1>
-        <p>This game uses real NASA data. Here is exactly what we used, and how.</p></header>
-      <div class="sources">
-        <article class="source main">
-          <span class="label">Used for solar storms</span>
-          <h2>DONKI — Space Weather Database</h2>
-          <p><b>What:</b> NASA's record of real Coronal Mass Ejections (CMEs) and radiation storms (SEP events), from the Community Coordinated Modeling Center.</p>
-          <p><b>How we use it:</b> each mission picks 2 real CMEs: one from the live feed (what the Sun did in the last 60 days) and one from our archive of big storms from the 2024–2025 solar maximum.
-          The CME's <b>speed</b> sets the storm level (under 1,000 km/s = level 1, 1,000–1,999 = level 2, 2,000+ = level 3). If DONKI linked the CME to a radiation storm (SEP), the level goes up by 1.
-          We also use the speed to work out how long the CME would take to reach the Moon or Mars.</p>
-          <p><b>Live or archived?</b> The game first asks the live API. If that fails, it uses a saved copy of real DONKI records${a ? ` (saved ${esc(a.savedOn)}, ${a.storms.length} CMEs)` : ""}. Every storm card says which one it is.</p>
-          <p>${dataChip()}</p>
-          <p class="muted small"><b>Simplification:</b> a real CME only hits a planet if it is aimed that way. The game asks “what if a storm this strong hit our base?”</p>
-          <p><a href="https://ccmc.gsfc.nasa.gov/tools/DONKI/" target="_blank" rel="noopener">ccmc.gsfc.nasa.gov/tools/DONKI</a> · <a href="https://api.nasa.gov" target="_blank" rel="noopener">api.nasa.gov</a></p>
-        </article>
-        <article class="source">
-          <span class="label">Used for power, gravity, radiation, radio delay</span>
-          <h2>Planet facts</h2>
+    const st = Donki.state;
+    const donkiBadge = st.status === "live" ? `<span class="badge live">Live</span>` : st.archive.length ? `<span class="badge arch">Archived</span>` : `<span class="badge sim">Game simulation</span>`;
+    render(`<section class="screen sources">
+      <button class="btn-secondary sm back-btn" data-go="home">Back</button>
+      <h1>NASA science sources</h1>
+      <p>Game numbers are simplified. Badges show <b>Live</b> or <b>Archived</b> only when real NASA data is connected.</p>
+      <div class="src-grid">
+        <article class="src">
+          <h2>DONKI space weather</h2><div>${donkiBadge}</div>
+          <p>Every solar storm is a <b>real CME</b> from NASA's DONKI database.</p>
           <ul>
-            <li><b>Radio delay:</b> Moon ≈ 1.3 s (384,400 km ÷ speed of light). Mars ≈ 3–22 min, estimated for today's date from Earth's and Mars' orbits.</li>
-            <li><b>Solar power:</b> Mars gets about 43% of the sunlight Earth gets, so the Mars base has less power.</li>
-            <li><b>Radiation:</b> the Moon has no air; Mars has thin air. Measurements (NASA Curiosity's RAD instrument on Mars, and lunar surface measurements) show the Moon's surface gets roughly twice Mars' daily dose, so the game uses 2 for the Moon and 1 for Mars.</li>
-            <li><b>Sol length and gravity:</b> NASA Mars and Moon fact sheets.</li>
+            <li>Its real <b>speed</b> sets how strong the storm is.</li>
+            <li>Speed ÷ distance to the Moon or Mars = <b>your countdown</b> (1 real hour ≈ half a game second).</li>
+            <li>If DONKI linked it to a radiation storm (SEP), it hits harder.</li>
           </ul>
-          <p><a href="https://nssdc.gsfc.nasa.gov/planetary/factsheet/" target="_blank" rel="noopener">NASA Planetary Fact Sheet</a> ·
-             <a href="https://science.nasa.gov/mars/facts/" target="_blank" rel="noopener">Mars facts</a> ·
-             <a href="https://science.nasa.gov/moon/facts/" target="_blank" rel="noopener">Moon facts</a></p>
+          <span class="link">ccmc.gsfc.nasa.gov/tools/DONKI</span>
+          <button class="btn-secondary sm" data-go="sunwatch">Open Sun Watch</button>
         </article>
-        <article class="source">
-          <span class="label">Used for event cards</span>
-          <h2>Real missions behind the events</h2>
-          <p>Every event card shows a true fact and its NASA source: ISS water recycling, the Veggie greenhouse, Apollo moon dust, LCROSS lunar ice, the Artemis south pole, Opportunity and the 2018 Mars dust storm, MOXIE oxygen, and the Phoenix lander's perchlorate discovery.</p>
+        <article class="src">
+          <h2>OSDR astronaut research</h2><div><span class="badge sim">Game simulation</span></div>
+          <p>Radiation and crew health messages.</p>
+          <ul><li>Not connected yet. Next step: use OSDR radiation dosimetry to make storm damage more realistic.</li></ul>
+          <a class="link" href="https://osdr.nasa.gov/" target="_blank" rel="noopener">osdr.nasa.gov</a>
         </article>
-        <article class="source next">
-          <span class="label">Next step</span>
-          <h2>OSDR — Open Science Data Repository</h2>
-          <p>Not used yet. Plan: use OSDR radiation dosimetry and astronaut health studies to make the Crew Health meter more realistic. <a href="https://osdr.nasa.gov/" target="_blank" rel="noopener">osdr.nasa.gov</a></p>
+        <article class="src">
+          <h2>Artemis (Moon)</h2><div><span class="badge arch">NASA facts</span></div>
+          <p>Moon base conditions, simplified.</p>
+          <ul><li>Jump physics use the Moon's real gravity: 1.62 m/s².</li><li>Radio delay: 1.3 seconds.</li><li>Base at the south pole, where Artemis plans to explore.</li></ul>
+          <a class="link" href="https://www.nasa.gov/humans-in-space/artemis/" target="_blank" rel="noopener">NASA Artemis</a>
+        </article>
+        <article class="src">
+          <h2>Mars surface missions</h2><div><span class="badge arch">NASA facts</span></div>
+          <p>Dust storms and low power on Mars, simplified.</p>
+          <ul><li>Jump physics use Mars' real gravity: 3.71 m/s².</li><li>Mars gets ~43% of Earth's sunlight → less solar power.</li><li>Radio delay is worked out for today's real Earth–Mars distance.</li></ul>
+          <a class="link" href="https://science.nasa.gov/mars/" target="_blank" rel="noopener">NASA Mars missions</a>
         </article>
       </div>
-      <p class="muted small back">Game numbers (like “10 food per day”) are simplified for play. Facts and storm data are real. Not an official NASA product.</p>
-      <div><button class="btn ghost" data-go="home">${I("arrow-left")} Back</button></div>`);
+    </section>`);
   }
 
-  /* ================= GAME SETUP ================= */
+  /* =========================================================
+     MISSION SETUP
+     ========================================================= */
   function pickStormDays(n) {
-    for (let tries = 0; tries < 100; tries++) {
-      const cand = [];
-      for (let d = 3; d <= DAYS; d++) cand.push(d);
+    for (let k = 0; k < 100; k++) {
+      const c = []; for (let d = 2; d <= DAYS; d++) c.push(d);
       const days = [];
-      while (days.length < n && cand.length) days.push(cand.splice(Math.floor(Math.random() * cand.length), 1)[0]);
+      while (days.length < n) days.push(c.splice(Math.floor(Math.random() * c.length), 1)[0]);
       days.sort((a, b) => a - b);
-      if (days.every((d, i) => i === 0 || d - days[i - 1] > 1)) return days;
+      if (days.every((d, i) => !i || d - days[i - 1] > 1)) return days;
     }
     return [3, 6];
   }
 
-  function newGame(placeId) {
+  function startMission(placeId) {
+    if (S) S.over = true;
+    closeModal(true);
+    $("#popup").hidden = true;
+    dest = placeId;
     const place = D.places[placeId];
-    const storms = Donki.pickStorms(C.STORMS_PER_MISSION);
-    const stormByDay = {};
-    pickStormDays(storms.length).forEach((d, i) => (stormByDay[d] = storms[i]));
+    const storms = {};
+    const picked = Donki.pickStorms(C.STORMS_PER_MISSION);
+    pickStormDays(picked.length).forEach((d, i) => (storms[d] = picked[i]));
     S = {
-      placeId, place, day: 1,
-      air: 70, food: 60, health: 100,
-      prevMeters: { air: 70, food: 60, health: 100 },
-      battery: 2, stored: 0, sent: 0,
-      solarBonus: 0, radMod: 0, tempSolar: [],
-      pending: [], inbox: [],
-      alloc: { life: 3, green: 2, shield: 0, comms: 1, science: 0 },
-      useBattery: 0, lastShield: 0,
-      stormByDay, warned: {},
+      placeId, place, day: 1, t: 0,
+      life: 80, power: 80, shield: 75, food: 70, growth: 0.45,
+      science: 0, stored: 0, carrying: 0,
+      dust: [0.1, 0.2, 0.05], broken: false, leakAt: null, samples: [],
+      sending: 0, boosting: 0,
+      solarMul: 1, solarForever: 1, wearMul: 1, speedMul: 1,
+      storms, storm: null, stormAt: 0, stormStarted: false, linkDay: 1, blackout: 0,
+      evAt: 0, evDone: false, pending: null, ask: null, modalOpen: false,
+      dayStart: null, dayLog: [], decisions: [], hist: [], sparks: { life: [], power: [], shield: [] }, sampleT: 0,
+      stats: { cleaned: 0, fixed: 0, harvested: 0, rocks: 0, stormsFaced: [], asked: 0, lateWarnings: 0, boosted: 0 },
       delayMin: placeId === "mars" ? marsDelay() : null,
-      usedEvents: new Set(),
-      log: [], history: [{ day: 0, air: 70, food: 60, health: 100 }],
-      stats: { commsDays: 0, warnings: 0, surprises: 0, stormDamage: 0, shieldDays: 0, powerUsed: 0, lowAir: 70, lowFood: 60 },
-      today: null
+      over: false
     };
-    S.inbox.push({ icon: "flag", from: "Mission Control · Earth", text: `Welcome, Commander! Your crew has landed at the ${place.name}. Keep them safe for ${DAYS} ${place.dayWord}s.` });
+    app.hidden = true; gameEl.hidden = false; document.body.classList.add("playing");
+    $("#g-place").textContent = place.short;
+    buildHud();
+    World.reset(placeId);
+    World.resize();
     startDay();
+    last = performance.now();
   }
 
-  /* ================= EFFECTS ================= */
-  function applyEffects(e) {
-    if (!e) return;
-    const T = S.today;
-    for (const [k, v] of Object.entries(e)) {
-      switch (k) {
-        case "air": case "food": case "health": S[k] = clamp(S[k] + v, 0, 100); break;
-        case "science": S.stored = Math.max(0, S.stored + v); break;
-        case "battery": S.battery = clamp(S.battery + v, 0, BATTERY_MAX); break;
-        case "fromBattery": { const m = Math.min(v, S.battery); S.battery -= m; T.powerDelta += m; break; }
-        case "powerToday": T.powerDelta += v; break;
-        case "shieldBonus": T.shieldBonus += v; break;
-        case "noScience": T.noScience = true; break;
-        case "stormFactor": T.stormFactor *= v; break;
-        case "solarTemp": S.tempSolar.push({ delta: v.delta, until: S.day + v.days - 1 }); break;
-        case "solarForever": S.solarBonus += v; break;
-        case "radiationForever": S.radMod += v; break;
-        case "later": S.pending.push({ day: S.day + v.days, effects: v.effects, msg: v.msg }); break;
+  function stopGame() {
+    if (S) S.over = true;
+    closeModal(true);
+  }
+
+  function startDay() {
+    S.t = 0; S.solarMul = 1; S.speedMul = 1;
+    S.evDone = false; S.evAt = 16 + Math.random() * 14;
+    S.stormAt = 5 + Math.random() * 8; S.stormStarted = false;
+    S.dayStart = { life: S.life, power: S.power, shield: S.shield, food: S.food, science: S.science };
+    S.dayLog = [];
+    spawnSamples(2, 2180, 2650);
+    if (S.day === 1) toast(`Welcome, Commander! Walk with ← → (or tap), jump with Space, hold E to work.`, 6000);
+    else toast(`${cap(S.place.dayWord)} ${S.day} begins.`);
+  }
+
+  function spawnSamples(n, a, b) {
+    for (let i = 0; i < n; i++) S.samples.push({ x: a + Math.random() * (b - a), taken: false });
+    S.samples = S.samples.filter(s => !s.taken).slice(-8);
+  }
+
+  /* =========================================================
+     SIMULATION
+     ========================================================= */
+  const solarNow = () => S.place.solar * (1 - 0.7 * (S.dust.reduce((a, b) => a + b, 0) / 3)) * S.solarMul * S.solarForever;
+  const where = () => (World.isOutside() ? "outside" : World.roomOf(World.player.x) === "shelter" ? "shelter" : "inside");
+
+  function update(dt) {
+    const simulate = !S.modalOpen || (S.ask && S.ask.live);
+    if (S.ask) {
+      S.ask.left -= dt;
+      if (S.ask.left <= 0) {
+        S.ask = null; S.pending.tip = true;
+        if (S.modalOpen && S.pending) showChoices(); else toast("Mission Control replied! Tap Decide in the Mission Control panel.");
+      }
+    }
+    if (!simulate) return;
+    S.t += dt;
+    const powered = S.power > 0;
+    S.power += (solarNow() - R.load) * dt;
+    let dl = -R.lifeDrain;
+    if (!S.broken && powered) dl += R.recycle;
+    if (S.leakAt) dl -= R.leak;
+    if (S.food <= 0) dl -= R.hungry;
+    S.life += dl * dt;
+    S.food -= R.foodDrain * dt;
+    if (powered) S.growth = Math.min(1, S.growth + R.grow * dt);
+    S.shield -= R.wear * S.wearMul * (powered ? 1 : 2) * dt;
+    S.dust = S.dust.map(d => Math.min(1, d + S.place.dustRate * dt * (0.7 + Math.random() * 0.6)));
+    S.sending = Math.max(0, S.sending - dt);
+    S.boosting = Math.max(0, S.boosting - dt);
+
+    // storms
+    if (S.storms[S.day] && !S.stormStarted && S.t >= S.stormAt && !S.modalOpen) startStorm();
+    if (S.storm) {
+      const st = S.storm;
+      if (st.phase === "coming") {
+        st.eta -= dt;
+        if (st.eta <= 0) { st.phase = "hit"; st.hitLeft = 5; st.where = {}; toast("The storm is here!", 2500); }
+      } else if (st.phase === "hit") {
+        const w = where();
+        const loc = w === "shelter" ? 0.3 : w === "outside" ? 1.8 : 1;
+        const dmg = (st.dmg / 5) * loc * st.mul * dt;
+        S.shield -= dmg; st.taken += dmg; st.where[w] = (st.where[w] || 0) + dt;
+        st.hitLeft -= dt;
+        if (st.hitLeft <= 0) endStorm();
+      }
+    }
+
+    // daily event
+    if (!S.evDone && !S.storms[S.day] && S.t >= S.evAt && !S.modalOpen && !S.pending) openEvent(drawEvent());
+
+    S.life = clamp(S.life, 0, 100); S.food = clamp(S.food, 0, 100); S.shield = clamp(S.shield, 0, 100);
+    if (S.power <= 0) { S.power = 0; S.blackout += dt; } else { S.power = Math.min(100, S.power); S.blackout = 0; }
+
+    S.sampleT += dt;
+    if (S.sampleT >= 1) {
+      S.sampleT = 0;
+      METERS.forEach(m => { const a = S.sparks[m.k]; a.push(S[m.k]); if (a.length > 40) a.shift(); });
+      S.hist.push({ d: S.day - 1 + S.t / DAY_LEN, life: S.life, power: S.power, shield: S.shield });
+    }
+
+    if (S.life <= 0) return fail("Life Support ran out. The crew didn't have enough air and water.");
+    if (S.shield <= 0) return fail("Shielding hit zero. The crew got too much radiation.");
+    if (S.blackout > 10) return fail("The base was out of power for too long.");
+
+    if (S.t >= DAY_LEN && !S.storm && !S.pending && !S.modalOpen && (!S.storms[S.day] || S.stormStarted)) endDay();
+  }
+
+  function loop(ts) {
+    const dt = Math.min(0.05, (ts - last) / 1000 || 0);
+    last = ts;
+    if (S && !S.over && !gameEl.hidden) {
+      update(dt);
+      if (!S.modalOpen) World.step(dt);
+      World.draw();
+      hudT += dt;
+      if (hudT > 0.12) { hudT = 0; updateHud(); }
+    }
+    requestAnimationFrame(loop);
+  }
+
+  /* ---------- world handlers ---------- */
+  function prompt(st) {
+    if (S.leakAt === st.id) return { text: "Patch the air leak", hold: 2.2, enabled: true };
+    switch (st.kind) {
+      case "panel": return S.dust[st.idx] > 0.06 ? { text: "Clean panel", hold: 0.9, enabled: true } : { text: "Panel is clean", enabled: false };
+      case "life":
+        if (S.broken) return { text: "Fix the recycler", hold: 2.2, enabled: true };
+        if (S.life >= 99.5) return { text: "Tanks full", enabled: false };
+        if (S.power < 3) return { text: "Not enough power", enabled: false };
+        return { text: "Hold to purify water", continuous: true, enabled: true };
+      case "green": return S.growth >= 1 ? { text: "Harvest food", hold: 1.1, enabled: true } : { text: `Plants growing ${Math.round(S.growth * 100)}%`, enabled: false };
+      case "shield":
+        if (S.shield >= 99.5) return { text: "Shield full", enabled: false };
+        if (S.power < 3) return { text: "Not enough power", enabled: false };
+        return { text: "Hold to charge shield", continuous: true, enabled: true };
+      case "shelter": return { text: S.storm ? "Safe in the shelter!" : "Storm shelter", enabled: false };
+      case "lab": return S.carrying ? { text: `Study rock (${S.carrying})`, hold: 1.1, enabled: true } : { text: "Bring rocks from outside", enabled: false };
+      case "dish":
+        if (S.stored > 0) return { text: `Send ${S.stored} data to Earth`, hold: 1.3, enabled: true };
+        return S.linkDay < S.day ? { text: "Check in with Earth", hold: 1, enabled: true } : { text: "Earth link strong", enabled: false };
+    }
+    return null;
+  }
+  function done(st) {
+    if (S.leakAt === st.id) { S.leakAt = null; S.stats.fixed++; logDay("You patched the air leak."); World.burst("spark", st.x + 50, World.HAB_TOP + 26, 14); return toast("Leak patched!"); }
+    switch (st.kind) {
+      case "panel": S.dust[st.idx] = 0; S.stats.cleaned++; World.burst("dust", st.x, World.GROUND - 100, 12); logDay("cleaned", 1); break;
+      case "life": S.broken = false; S.stats.fixed++; logDay("You fixed the water recycler."); toast("Recycler fixed!"); break;
+      case "green": S.growth = 0; S.food = Math.min(100, S.food + R.harvest); S.stats.harvested++; logDay("You harvested the greenhouse."); toast(`Harvest! +${R.harvest} Greenhouse food`); break;
+      case "lab": S.carrying--; S.stored += R.perRock; S.power -= R.analyzeCost; S.stats.rocks++; toast(`Rock studied: +${R.perRock} data. Send it from the Radio Dish!`); break;
+      case "dish": {
+        const n = S.stored;
+        S.science += n; S.stored = 0; S.power -= n ? R.sendCost : 1; S.linkDay = S.day; S.sending = 1.6;
+        logDay(n ? `You sent ${n} science data to Earth.` : "You checked in with Earth.");
+        toast(n ? `${n} data on its way to Earth! It takes ${S.placeId === "moon" ? "1.3 seconds" : `about ${S.delayMin} minutes`} to arrive.` : "Earth link is strong. You'll get early storm warnings.");
+        break;
       }
     }
   }
-
-  function solarToday() {
-    const temp = S.tempSolar.filter(t => t.until >= S.day).reduce((a, t) => a + t.delta, 0);
-    return Math.max(0, S.place.solar + S.solarBonus + temp);
+  function hold(st, dt) {
+    if (st.kind === "life" && !S.broken && S.power >= 3 && S.life < 100) { S.power -= R.purifyCost * dt; S.life = Math.min(100, S.life + R.purifyGain * dt); return; }
+    if (st.kind !== "shield" || S.power < 3 || S.shield >= 100) return;
+    S.power -= R.boostCost * dt; S.shield = Math.min(100, S.shield + R.boostGain * dt); S.boosting = 0.2; S.stats.boosted += R.boostGain * dt;
   }
-  const dailyRadiation = () => Math.max(0, S.place.radiation + S.radMod);
-  const stormDamage = (storm, shield, factor) => Math.round(storm.level * 18 * Math.max(0, 1 - 0.2 * shield) * factor);
-  const lifeDelta = L => (L >= 3 ? (L - 3) * 4 : (L - 3) * 8);
-  const foodDelta = G => G * 5 - 10;
-
-  /* ================= DAY FLOW ================= */
-  function startDay() {
-    const T = S.today = {
-      powerDelta: 0, shieldBonus: 0, noScience: false, stormFactor: 1,
-      messages: [], event: null, choice: null,
-      storm: S.stormByDay[S.day] || null, warned: !!S.warned[S.day], surprise: null
-    };
-    S.tempSolar = S.tempSolar.filter(t => t.until >= S.day);
-    T.messages.push(...S.inbox); S.inbox = [];
-
-    S.pending.filter(p => p.day === S.day).forEach(p => {
-      applyEffects(p.effects);
-      T.messages.push({ icon: "message-square", from: "Late reply from Earth", text: p.msg });
-    });
-    S.pending = S.pending.filter(p => p.day !== S.day);
-
-    // A storm with NO warning hits before you can prepare
-    if (T.storm && !T.warned) {
-      const dmg = stormDamage(T.storm, S.lastShield, 1);
-      S.health = clamp(S.health - dmg, 0, 100);
-      S.stats.surprises++; S.stats.stormDamage += dmg;
-      T.surprise = { dmg };
-      T.messages.push({ icon: "sun", cls: "bad", from: "Base alarm", text: `Surprise solar storm! Your radio was off yesterday, so Earth could not warn you. It hit during the night: crew health −${dmg}.` + (S.lastShield ? ` Yesterday's shield helped a little.` : "") });
-      S.log.push({ day: S.day, text: `Surprise solar storm, no warning (−${dmg} health)` });
-    }
-
-    T.event = (T.storm && T.warned) ? makeStormEvent(T.storm) : drawEvent();
-    if (checkFail()) return;
-    briefing();
+  function pickup(s) {
+    if (S.carrying >= 3) { if (!S.fullMsg) { S.fullMsg = true; toast("Hands full! Take your rocks to the Science Lab."); setTimeout(() => S && (S.fullMsg = false), 4000); } return; }
+    s.taken = true; S.carrying++; World.burst("spark", s.x, World.GROUND - 20, 10);
+    toast(`Rock collected (${S.carrying}/3). Study it in the Science Lab.`, 2500);
+  }
+  function logDay(text, count) {
+    if (count) { const e = S.dayLog.find(x => x.k === text); if (e) e.n++; else S.dayLog.push({ k: text, n: 1 }); return; }
+    S.dayLog.push({ text });
   }
 
+  /* =========================================================
+     STORMS (real NASA DONKI CMEs)
+     ========================================================= */
+  function startStorm() {
+    S.stormStarted = true;
+    const st = S.storms[S.day];
+    const au = S.placeId === "moon" ? 1 : 1.524;
+    const hours = st.source === "practice" ? 40 : SunWatch.hoursTo(st.speed, au);
+    let secs = clamp(Math.round(hours * 0.5), 12, 45);
+    const late = S.linkDay < S.day - 1;
+    if (late) { secs = Math.max(8, Math.round(secs * 0.5)); S.stats.lateWarnings++; }
+    const dmg = [0, 30, 45, 60][st.level] + (st.hasSep ? 15 : 0);
+    S.storm = { st, phase: "coming", eta: secs, total: secs, hours, late, dmg, mul: 1, taken: 0, where: {} };
+    stormAlert();
+  }
+  function endStorm() {
+    const st = S.storm;
+    const mostly = Object.entries(st.where).sort((a, b) => b[1] - a[1])[0]?.[0] || "inside";
+    const lost = Math.round(st.taken);
+    S.stats.stormsFaced.push({ ...st.st, lost, mostly });
+    logDay(`A real solar storm hit. You were ${mostly === "shelter" ? "safe in the shelter" : mostly === "outside" ? "OUTSIDE — ouch" : "inside the base"}. Shielding −${lost}.`);
+    toast(`Storm over. Shielding −${lost}${mostly === "shelter" ? " (the shelter helped!)" : mostly === "outside" ? " (being outside made it worse!)" : ""}.`, 5000);
+    S.storm = null;
+  }
+  function stormAlert() {
+    const st = S.storm, c = st.st;
+    const badge = c.source === "live" ? `<span class="badge live">Live NASA data</span>` : c.source === "archive" ? `<span class="badge arch">Archived NASA data</span>` : `<span class="badge">Practice storm</span>`;
+    openModal(`<div class="emerg">
+      <span class="e-pill">Emergency</span>
+      <div class="e-art" aria-hidden="true"><div class="sun"></div><div class="beam"></div><div class="dome ${S.placeId}"></div></div>
+      <h2>${esc(D.storm.title)}</h2>
+      <p>${fill(D.storm.text)}</p>
+      ${c.source === "practice" ? "" : `<div class="data-line">
+        ${badge}
+        <span>Real <button class="term" data-term="CME">CME</button> left the Sun <b>${esc(c.date)}</b></span>
+        <span>Speed <b>${c.speed.toLocaleString()} km/s</b></span>
+        <span>Real trip to ${S.placeId === "moon" ? "the Moon" : "Mars"}: <b>~${st.hours} h</b></span>
+        <span>Your warning: <b>${st.eta} seconds</b></span>
+        <span>Strength <b>${c.level}/3</b>${c.hasSep ? " + radiation storm" : ""}</span>
+      </div>`}
+      <p class="note">${st.late ? "Your radio was quiet yesterday, so the warning came LATE. Check in with Earth at the Radio Dish to get earlier warnings. " : ""}Inspired by NASA DONKI space weather. Game values are simplified.</p>
+      <button class="btn-primary" data-act="storm-choices">See my choices</button>
+    </div>`);
+  }
+
+  /* =========================================================
+     EVENTS + CHOICES (design pages 6–7)
+     ========================================================= */
   function drawEvent() {
-    let pool = D.events.filter(e => (e.place === "both" || e.place === S.placeId) && !S.usedEvents.has(e.id));
-    if (!pool.length) { S.usedEvents.clear(); pool = D.events.filter(e => e.place === "both" || e.place === S.placeId); }
-    const ev = rand(pool);
-    S.usedEvents.add(ev.id);
-    return ev;
+    S.used = S.used || new Set();
+    let pool = D.events.filter(e => (e.place === "both" || e.place === S.placeId) && !S.used.has(e.id));
+    if (!pool.length) { S.used.clear(); pool = D.events.filter(e => e.place === "both" || e.place === S.placeId); }
+    const ev = rand(pool); S.used.add(ev.id); return ev;
   }
-
-  function makeStormEvent(st) {
-    return {
-      id: "storm", isStorm: true, icon: "sun", cat: "storm",
-      title: "Solar storm incoming!",
-      text: "Earth spotted a giant cloud from the Sun (a [[CME]]). It will hit your base today. What should the crew do? You can also add power to the Radiation Shield in your plan.",
-      fact: "Water is great at blocking radiation. Artemis astronauts in the Orion capsule can build a storm shelter by moving supply bags around themselves.",
-      source: "NASA Artemis / Orion",
-      choices: [
-        { label: "Everyone into the storm shelter", good: "Storm radiation cut in half", cost: "No science today, −5 air & water",
-          effects: { stormFactor: 0.5, noScience: true, air: -5 },
-          result: "The crew squeezed into the shelter with water bags all around them. Cozy, and much safer!" },
-        { label: "Keep working and measure the storm", good: "+15 science data about the storm", cost: "Crew gets the full storm radiation",
-          effects: { science: 15 },
-          result: "Scientists love storm data! NASA's Curiosity rover measured solar storms on Mars too. But the crew got more radiation." },
-        { label: "Run extra shields on battery", good: "+2 free shield power today", cost: "Uses 3 battery power", needsBattery: 3,
-          effects: { shieldBonus: 2, battery: -3 },
-          result: "The shields are humming at full power, thanks to your saved battery energy." }
-      ]
-    };
+  function openEvent(ev) {
+    S.evDone = true;
+    S.pending = { ev, sel: null, tip: false, storm: false };
+    openModal(""); showChoices();
   }
-
-  /* ================= SHARED PIECES ================= */
-  function gauge(key, ic, label, v, from) {
-    const R = 34, CIRC = 2 * Math.PI * R;
-    const lvl = v <= 20 ? "danger" : v <= 40 ? "low" : "";
-    const off = n => (CIRC * (1 - n / 100)).toFixed(1);
-    return `<div class="gauge ${key} ${lvl}" role="meter" aria-label="${label}" aria-valuenow="${v}" aria-valuemin="0" aria-valuemax="100">
-      <svg viewBox="0 0 84 84" aria-hidden="true">
-        <circle class="track" cx="42" cy="42" r="${R}" fill="none" stroke-width="9"/>
-        <circle class="val" cx="42" cy="42" r="${R}" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round"
-          stroke-dasharray="${CIRC.toFixed(1)}" style="stroke-dashoffset:${off(from)}" data-to="${off(v)}" transform="rotate(-90 42 42)"/>
-        <text x="42" y="50" text-anchor="middle">${v}</text>
-      </svg>
-      <div class="g-label">${I(ic)}${label}</div>
-    </div>`;
+  const NAMES = { life: "Life Support", power: "Power", shield: "Shielding", food: "Greenhouse", science: "Science" };
+  function effFx(ch, i) {
+    const fx = { ...(ch.fx || {}) };
+    if (S.pending.tip && i === S.pending.ev.tip) for (const k in fx) if (fx[k] < 0) fx[k] = Math.ceil(fx[k] / 2);
+    return fx;
   }
-
-  function rail() {
-    const p = S.prevMeters;
-    const tl = Array.from({ length: DAYS }, (_, i) => {
-      const d = i + 1;
-      const known = S.stormByDay[d] && (d < S.day || S.warned[d] || (d === S.day && S.today.storm));
-      const cls = d < S.day ? "done" : d === S.day ? "now" : "";
-      return `<span class="tl ${cls} ${known ? "storm" : ""}" title="${dayName()} ${d}${known ? " · solar storm" : ""}">${d}</span>`;
-    }).join("");
-    return `<aside class="rail" aria-label="Base status">
-      <div class="rail-card">
-        <div class="rail-head"><span class="day">${dayName()} ${Math.min(S.day, DAYS)}<small>/ ${DAYS}</small></span><span class="label">${S.place.name}</span></div>
-        <div class="timeline">${tl}</div>
-      </div>
-      <div class="rail-card">
-        <div class="gauges">
-          ${gauge("air", "wind", "Air & Water", S.air, p.air)}
-          ${gauge("food", "sprout", "Food", S.food, p.food)}
-          ${gauge("health", "heart-pulse", "Crew Health", S.health, p.health)}
-        </div>
-      </div>
-      <div class="rail-card readouts">
-        <div class="readout">${I("battery-medium")} Battery <span class="cells" aria-label="${S.battery} of ${BATTERY_MAX}">${Array.from({ length: BATTERY_MAX }, (_, i) => `<i class="${i < S.battery ? "on" : ""}"></i>`).join("")}</span></div>
-        <div class="readout">${I("flask-conical")} Data waiting <b>${S.stored}</b></div>
-        <div class="readout">${I("send")} Sent to Earth <b>${S.sent}</b></div>
-        <div class="readout">${I("radio")} Radio delay <b>${delayShort()}</b></div>
-      </div>
-    </aside>`;
+  function chips(ch, i) {
+    const fx = effFx(ch, i);
+    const out = Object.entries(fx).filter(([, v]) => v).map(([k, v]) => `<span class="chip ${v > 0 ? "up" : "down"}">${v > 0 ? "+" : "−"}${Math.abs(v)} ${NAMES[k]}</span>`);
+    (ch.extra || []).forEach(x => out.push(`<span class="chip ${x.startsWith("Task") ? "task" : "note"}">${esc(x)}</span>`));
+    if (ch.risk) out.push(`<span class="chip down">${esc(ch.risk)}</span>`);
+    return out.join("");
   }
-
-  const consoleView = stage => `<div class="console">${rail()}<div class="stage">${stage}</div></div>`;
-
-  function cmeBox(st) {
-    if (st.source === "practice") return `<div class="callout">${I("triangle-alert")} Practice storm: no NASA data could be loaded, so this storm is made up.</div>`;
-    const dest = S.placeId === "moon" ? "the Moon" : "Mars";
-    const hours = Donki.hoursToTravel(st.speed, S.placeId === "moon" ? 1.0 : 1.52);
-    const badge = st.source === "live" ? `<span class="chip live"><span class="dot"></span>Live NASA data</span>` : `<span class="chip archive"><span class="dot"></span>Archived NASA data</span>`;
-    return `<div class="cme">
-      <div class="cme-top"><span class="label">NASA DONKI · real CME record</span>${badge}</div>
-      <dl class="cme-stat"><dt>Left the Sun</dt><dd>${esc(st.date)}${st.time ? ` <small>${esc(st.time)} UTC</small>` : ""}</dd></dl>
-      <dl class="cme-stat"><dt>Speed</dt><dd>${st.speed.toLocaleString()} <small>km/s</small></dd></dl>
-      <dl class="cme-stat"><dt>Trip to ${dest}</dt><dd>~${hours} <small>hours</small></dd></dl>
-      <dl class="cme-stat"><dt>Storm level</dt><dd>${st.level} <small>of 3</small><div class="flames">${[1, 2, 3].map(i => `<i class="${i <= st.level ? "on" : ""}"></i>`).join("")}</div></dd></dl>
-      <p>${st.hasSep ? `DONKI linked this CME to a radiation storm of fast particles (<button class="term" data-term="SEP">SEP</button>), so it's extra dangerous. ` : ""}${st.link ? `<a href="${esc(st.link)}" target="_blank" rel="noopener">See this record on DONKI</a>` : ""}</p>
-    </div>`;
-  }
-
-  /* ---------- 1. Briefing ---------- */
-  function briefing() {
-    const T = S.today;
-    const feed = T.messages.map(m => `
-      <li class="tx ${m.cls || ""}"><span class="badge">${I(m.icon)}</span>
-        <div><div class="from">${esc(m.from || "Mission Control · Earth")}</div><p>${fill(m.text)}</p></div></li>`).join("");
-    const solar = solarToday();
-    render(consoleView(`
-      <div class="window">${scene(S.placeId)}
-        <div class="window-copy"><span class="chip">${I("sunrise")} ${S.place.name} · ${S.place.dayWord} ${S.day}</span></div></div>
-      <section class="panel" style="display:grid;gap:16px">
-        <div><span class="label">Morning briefing · incoming transmissions</span><h2>Good morning, Commander</h2></div>
-        ${feed ? `<ul class="feed">${feed}</ul>` : `<p class="muted">All quiet at the base this morning.</p>`}
-        ${T.surprise ? cmeBox(T.storm) : ""}
-        <div class="forecast"><div class="big">${I("zap")}${solar}</div>
-          <div><b>Power forecast</b><br><span class="muted small">Your solar panels will make ${solar} power today.</span></div></div>
-        <div class="actions"><button class="btn primary lg" data-go="event">See today's challenge ${I("arrow-right")}</button></div>
-      </section>`));
-    speak(`Good morning, Commander. ${dayName()} ${S.day}. ` + T.messages.map(m => m.text).join(" "));
-  }
-
-  /* ---------- 2. Incident ---------- */
-  function eventScreen() {
-    const T = S.today, ev = T.event;
+  function showChoices() {
+    const P = S.pending, ev = P.ev;
     const text = ev[S.placeId === "moon" ? "textMoon" : "textMars"] || ev.text;
     const fact = ev[S.placeId === "moon" ? "factMoon" : "factMars"] || ev.fact;
-    let body;
-    if (!T.choice) {
-      body = `<div class="options">${ev.choices.map((c, i) => {
-        const disabled = c.needsBattery && S.battery < c.needsBattery;
-        return `<button class="option" data-choice="${i}" ${disabled ? "disabled" : ""}>
-          <span class="key">${"ABC"[i]}</span>
-          <strong>${fill(c.label)}</strong>
-          <span class="tradeoff">
-            <span class="gain">${I("check")}<span>${fill(c.good)}</span></span>
-            <span class="cost">${I("triangle-alert")}<span>${fill(c.cost)}</span></span>
-          </span>
-          ${disabled ? `<span class="need">Needs ${c.needsBattery} battery</span>` : ""}
-        </button>`; }).join("")}</div>`;
-    } else {
-      body = `<div class="outcome"><span class="badge">${I(ev.icon)}</span>
-          <div><span class="label">You chose: ${fill(T.choice.label)}</span><p>${fill(T.choice.result)}</p></div></div>
-        <div class="actions"><button class="btn primary lg" data-go="plan">${I("zap")} Plan today's power ${I("arrow-right")}</button></div>`;
+    const asking = !!S.ask;
+    const roundTrip = S.placeId === "moon" ? "2.6 seconds" : `${S.delayMin * 2} minutes`;
+    let askState = "";
+    if (asking) askState = `Message travelling to Earth and back… <b id="ask-left">${Math.ceil(S.ask.left)} s</b> (real round trip: ${roundTrip}). Your base keeps running!`;
+    else if (P.tip) askState = `<b>Mission Control replied:</b> they recommend “${esc(ev.choices[ev.tip].label)}” and halved its costs.`;
+    else askState = S.placeId === "mars" ? `Mars is far: a reply takes a while (shortened for the game).` : `The Moon is close: Earth replies in about 2.6 seconds.`;
+    mbox.innerHTML = `<div class="choose">
+      <h1>${fill(ev.title)}</h1>
+      <p class="lead">${fill(text)}${P.storm && S.storm ? ` <b class="yellow">Storm arrives in <span id="storm-eta">${Math.ceil(S.storm.eta)}</span> s.</b>` : ""}</p>
+      <div class="opts">${ev.choices.map((c, i) => `
+        <button class="opt ${P.sel === i ? "sel" : ""}" data-opt="${i}" aria-pressed="${P.sel === i}">
+          ${P.tip && i === ev.tip ? `<span class="rec">Mission Control pick</span>` : ""}
+          <h3>${fill(c.label)}</h3>
+          <p>${fill(c.desc)}</p>
+          <div>${chips(c, i)}</div>
+        </button>`).join("")}</div>
+      <div class="choose-foot">
+        <button class="btn-secondary" data-act="ask" ${asking || P.tip || S.power < R.askCost ? "disabled" : ""}>Ask Mission Control (−${R.askCost} Power)</button>
+        <span class="ask-state">${askState}${asking && S.placeId === "mars" ? ` <button class="mc-btn" data-act="minimize">Go work while you wait</button>` : ""}</span>
+        <button class="btn-primary" data-act="confirm" ${P.sel === null ? "disabled" : ""}>Confirm</button>
+      </div>
+      <div class="fact-strip"><b>Did you know?</b> ${fill(fact)} <small>Source: ${esc(ev.source)}</small></div>
+    </div>`;
+  }
+  function confirmChoice() {
+    const P = S && S.pending;
+    if (!P) return closeModal();
+    const ev = P.ev, i = P.sel;
+    if (i === null) return;
+    const ch = ev.choices[i];
+    const fx = effFx(ch, i);
+    for (const [k, v] of Object.entries(fx)) {
+      if (k === "science") S.science = Math.max(0, S.science + v);
+      else S[k] = clamp(S[k] + v, 0, 100);
     }
-    render(consoleView(`
-      <section class="panel incident" data-cat="${ev.cat || "science"}">
-        <header class="incident-head">
-          <div class="emblem"><span>${I(ev.icon)}</span></div>
-          <div><span class="label">${CATS[ev.cat] || "Incident"} · ${dayName()} ${S.day}</span>
-            <h2>${fill(ev.title)}</h2><p>${fill(text)}</p></div>
-        </header>
-        <div class="incident-body">
-          ${ev.base ? `<div class="callout sun">${I("zap")} This changes your power today. Read the choices carefully.</div>` : ""}
-          ${ev.isStorm ? cmeBox(T.storm) : ""}
-          ${body}
-          <aside class="note-card"><span class="badge">${I("lightbulb")}</span>
-            <div><span class="label">Real space fact</span><p>${fill(fact)}</p><span class="src">Source · ${esc(ev.source)}</span></div></aside>
-        </div>
-      </section>`));
-    if (!T.choice) speak(`${ev.title} ${text} ` + ev.choices.map((c, i) => `Choice ${"ABC"[i]}: ${c.label}.`).join(" "));
-    else speak(T.choice.result);
+    const m = ch.mod || {};
+    if (m.solarMul) { if (m.forever) S.solarForever *= m.solarMul; else S.solarMul *= m.solarMul; }
+    if (m.speedMul) S.speedMul = m.speedMul;
+    if (m.wearMul) S.wearMul *= m.wearMul;
+    if (ch.clean) S.dust = [0, 0, 0];
+    if (ch.link) S.linkDay = S.day;
+    if (ch.stormMul && S.storm) S.storm.mul *= ch.stormMul;
+    if (ch.task === "recycler") S.broken = true;
+    if (ch.task === "leak") S.leakAt = rand(["life", "green", "lab", "shield"]);
+    if (ch.task === "dust") S.dust = S.dust.map(d => Math.max(d, 0.85));
+    if (ch.task === "samples") spawnSamples(3, 2350, 2680);
+    S.decisions.push(`${ev.title.replace(/!$/, "")}: ${ch.label.toLowerCase()}`);
+    S.dayLog.push({ choice: ch.label, title: ev.title, fx });
+    S.pending = null; S.ask = null;
+    closeModal();
+    toast(fill(ch.result), 5000);
   }
 
-  function pickChoice(i) {
-    const T = S.today, ev = T.event, ch = ev.choices[i];
-    if (T.choice || !ch || (ch.needsBattery && S.battery < ch.needsBattery)) return;
-    const v = ch.ask ? ch[S.placeId] : ch;
-    if (ev.base) applyEffects(ev.base);
-    applyEffects(v.effects);
-    T.choice = { label: ch.label, result: v.result };
-    S.log.push({ day: S.day, text: `${fill(ev.title)} <b>${fill(ch.label)}</b>` });
-    if (checkFail()) return;
-    eventScreen();
-  }
-
-  /* ---------- 3. Power plan ---------- */
-  const sunPower = () => Math.max(0, solarToday() + S.today.powerDelta);
-  const available = () => sunPower() + S.useBattery;
-  const used = () => Object.values(S.alloc).reduce((a, b) => a + b, 0);
-
-  function preview() {
-    const T = S.today, a = S.alloc;
-    const shield = a.shield + T.shieldBonus;
-    const rad = dailyRadiation();
-    const storm = T.storm && T.warned ? stormDamage(T.storm, shield, T.stormFactor) : 0;
-    const made = T.noScience ? 0 : a.science * 8;
-    const left = available() - used();
-    return {
-      life: lifeDelta(a.life), food: foodDelta(a.green),
-      radiation: -Math.max(0, rad - shield), storm: -storm, shield, rad,
-      made, sends: a.comms >= 1 ? S.stored + made : 0,
-      left, batteryAfter: clamp(S.battery - S.useBattery + Math.max(0, left), 0, BATTERY_MAX)
-    };
-  }
-
-  function plan() {
-    const T = S.today;
-    while (used() > available()) {
-      const k = ["science", "shield", "comms", "green", "life"].find(k => S.alloc[k] > 0);
-      if (!k) break; S.alloc[k]--;
-    }
-    const p = preview();
-    const cls = v => (v > 0 ? "good" : v < 0 ? "bad" : "neutral");
-    const effect = {
-      life: `<span class="${cls(p.life)}">AIR &amp; WATER ${sign(p.life)}</span>`,
-      green: `<span class="${cls(p.food)}">FOOD ${sign(p.food)}</span>`,
-      shield: `<span class="${cls(p.radiation + p.storm)}">HEALTH ${sign(p.radiation)} RADIATION${T.storm && T.warned ? ` · ${sign(p.storm)} STORM` : ""}</span>${T.shieldBonus ? ` <span class="good">+${T.shieldBonus} FREE</span>` : ""}`,
-      comms: S.alloc.comms >= 1 ? `<span class="good">SENDS ${p.sends} DATA · STORM WARNINGS ON</span>` : `<span class="bad">NO DATA SENT · NO WARNINGS</span>`,
-      science: T.noScience ? `<span class="bad">CREW IN SHELTER · NO SCIENCE</span>` : `<span class="${cls(p.made)}">DATA +${p.made}</span>`
-    };
-    const rows = SYSTEMS.map(s => {
-      const n = S.alloc[s.id];
-      const bars = Array.from({ length: MAX_UNITS }, (_, i) => `<i class="${i < n ? "on" : ""} ${i < s.need ? "need" : ""}"></i>`).join("");
-      return `<div class="sys" data-sys="${s.id}">
-        <span class="sys-icon">${I(s.icon)}</span>
-        <div class="sys-name"><b>${s.name}</b><small>${s.help}</small></div>
-        <div class="sys-effect">${effect[s.id]}</div>
-        <div class="ctl">
-          <button class="step" data-dec="${s.id}" aria-label="Less power to ${s.name}" ${n <= 0 ? "disabled" : ""}>${I("minus")}</button>
-          <span class="bars" aria-label="${n} of ${MAX_UNITS} power">${bars}</span>
-          <button class="step plus" data-inc="${s.id}" aria-label="More power to ${s.name}" ${n >= MAX_UNITS || p.left <= 0 ? "disabled" : ""}>${I("plus")}</button>
-        </div>
-      </div>`;
-    }).join("");
-    const sun = sunPower(), u = used();
-    const tokens = Array.from({ length: sun + S.useBattery }, (_, i) =>
-      `<span class="token ${i >= sun ? "batt" : ""} ${i < u ? "used" : ""}">${I(i >= sun ? "battery-medium" : "zap")}</span>`).join("");
-    render(consoleView(`
-      <section class="panel">
-        <div class="plan-head">
-          <div><span class="label">Power plan · ${dayName()} ${S.day}</span><h2>Share your power</h2></div>
-        </div>
-        <div class="reservoir">
-          <div class="tokens" aria-hidden="true">${tokens || `<span class="muted">No power today!</span>`}</div>
-          <div class="left-count ${p.left === 0 ? "zero" : ""}"><b>${p.left}</b><span>left to share</span></div>
-          <div class="reservoir-meta">
-            <span>${I("sun")} ${sun} from the Sun${T.powerDelta ? ` (${sign(T.powerDelta)} from today's events)` : ""}</span>
-            <span class="batt-ctl">${I("battery-medium")} Use battery
-              <button class="step mini" data-batt="-1" aria-label="Use less battery" ${S.useBattery <= 0 ? "disabled" : ""}>${I("minus")}</button>
-              <b class="mono">${S.useBattery}</b>
-              <button class="step mini plus" data-batt="1" aria-label="Use more battery" ${S.useBattery >= S.battery ? "disabled" : ""}>${I("plus")}</button>
-              <span class="muted small">${S.battery} stored</span></span>
-            ${p.left > 0 ? `<span class="muted small">Leftover power charges the battery.</span>` : ""}
-          </div>
-        </div>
-        ${T.storm && T.warned ? `<div class="callout" style="margin-top:14px">${I("sun")} Storm today! Each shield power blocks 20% of the storm.</div>` : ""}
-        <div class="systems">${rows}</div>
-        ${S.day === DAYS && S.alloc.comms < 1 && S.stored + p.made > 0 ? `<div class="callout" style="margin-top:14px">${I("radio-tower")} Last ${S.place.dayWord}! With the radio off, your science will never reach Earth.</div>` : ""}
-        <div class="actions" style="margin-top:20px"><button class="btn go lg" data-go="endday">${I("check")} End ${S.place.dayWord} ${S.day}</button></div>
-      </section>`));
-  }
-
-  /* ---------- 4. End of day ---------- */
+  /* =========================================================
+     DAY END — "What happened" (design page 8)
+     ========================================================= */
   function endDay() {
-    const T = S.today, a = { ...S.alloc }, p = preview();
-    const changes = [];
-    const add = (icon, color, what, v, why) => changes.push({ icon, color, what, v, why });
-
-    S.air = clamp(S.air + p.life, 0, 100);
-    add("wind", "var(--sky)", "Air & Water", p.life, a.life < 3 ? `Life support only had ${a.life} power (it needs 3).` : a.life > 3 ? "Extra power refilled the tanks." : "Life support ran normally.");
-
-    S.food = clamp(S.food + p.food, 0, 100);
-    add("sprout", "var(--leaf)", "Food", p.food, `The crew ate 10. The greenhouse grew ${a.green * 5}.`);
-
-    S.health = clamp(S.health + p.radiation, 0, 100);
-    add("shield", "var(--rose)", "Crew Health", p.radiation, `Space radiation today: ${p.rad}. Your shield blocked ${Math.min(p.rad, p.shield)}.`);
-    if (p.shield > 0) S.stats.shieldDays++;
-
-    if (T.storm && T.warned) {
-      S.health = clamp(S.health + p.storm, 0, 100);
-      S.stats.stormDamage += -p.storm;
-      add("sun", "var(--coral)", "Solar storm", p.storm, `Level ${T.storm.level} storm. Your shield blocked ${Math.min(100, p.shield * 20)}%${T.stormFactor < 1 ? ", and the shelter cut it in half" : ""}.`);
-      S.log.push({ day: S.day, text: `Solar storm with warning (${sign(p.storm)} health)` });
+    S.hist.push({ d: S.day, life: S.life, power: S.power, shield: S.shield });
+    const s0 = S.dayStart;
+    const card = (k, name) => {
+      const a = Math.round(s0[k]), b = Math.round(S[k]), d = b - a;
+      const [, , col] = status(b);
+      return `<div class="hap"><div class="hap-top"><b>${name}</b><span class="delta ${d > 0 ? "up" : d < 0 ? "down" : "same"}">${d > 0 ? "+" : d < 0 ? "−" : "±"}${Math.abs(d)}</span></div>
+        <div class="from">${a} → ${b}</div><div class="mbar"><i style="width:${b}%;background:${col}"></i></div></div>`;
+    };
+    const choice = S.dayLog.find(x => x.choice);
+    const lines = [];
+    if (choice) {
+      const ups = Object.entries(choice.fx).filter(([, v]) => v > 0).map(([k]) => NAMES[k]);
+      const downs = Object.entries(choice.fx).filter(([, v]) => v < 0).map(([k]) => NAMES[k]);
+      lines.push(`You chose “${esc(choice.choice)}”.${ups.length ? ` ${ups.join(" and ")} got a boost` : ""}${ups.length && downs.length ? ", but" : ""}${downs.length ? ` ${downs.join(" and ")} paid the price` : ""}.`);
     }
-
-    S.stored += p.made;
-    if (p.made) add("flask-conical", "var(--lilac)", "Science data", p.made, `The lab collected ${p.made} data.`);
-
-    if (a.comms >= 1) {
-      S.stats.commsDays++;
-      const sentNow = S.stored;
-      S.sent += sentNow; S.stored = 0;
-      add("send", "var(--mint)", "Sent to Earth", sentNow, sentNow ? `Your data is safe on Earth! It took ${delayText()} to arrive.` : "Nothing to send, but Earth can still reach you.");
-      const next = S.stormByDay[S.day + 1];
-      if (next) {
-        S.warned[S.day + 1] = true; S.stats.warnings++;
-        S.inbox.push({ icon: "triangle-alert", cls: "warn", from: "Space weather warning", text: `Scientists saw a [[CME]] leave the Sun. It will reach you today! (This message took ${delayText()} to arrive.)` });
-      } else if (S.day < DAYS) {
-        S.inbox.push({ icon: "earth", text: rand(D.earthTips).replace(/^Mission Control says: /, "") });
-      }
-    } else {
-      add("radio", "var(--ink-3)", "Radio off", 0, "No data was sent, and Earth could not send you any messages.");
-    }
-
-    const left = Math.max(0, p.left);
-    S.battery = p.batteryAfter;
-    if (S.useBattery || left) add("battery-medium", "var(--mint)", "Battery", left - S.useBattery, `Used ${S.useBattery}, stored ${left} unused power (max ${BATTERY_MAX}).`);
-
-    S.stats.powerUsed += used();
-    S.lastShield = p.shield;
-    S.useBattery = 0;
-    S.stats.lowAir = Math.min(S.stats.lowAir, S.air);
-    S.stats.lowFood = Math.min(S.stats.lowFood, S.food);
-    S.history.push({ day: S.day, air: S.air, food: S.food, health: S.health });
-    T.changes = changes;
-    if (checkFail()) return;
-    report();
-  }
-
-  function report() {
-    const T = S.today, last = S.day >= DAYS;
-    const cls = v => (v > 0 ? "good" : v < 0 ? "bad" : "neutral");
-    render(consoleView(`
-      <section class="panel" style="display:grid;gap:16px">
-        <div><span class="label">End of ${S.place.dayWord} report</span><h2>${dayName()} ${S.day} complete</h2></div>
-        <ul class="telemetry">${T.changes.map(c => `
-          <li><span class="t-ic" style="color:${c.color}">${I(c.icon)}</span>
-            <span class="t-what">${c.what}</span>
-            <span class="t-val ${cls(c.v)}">${c.v ? sign(c.v) : "—"}</span>
-            <span class="t-why">${fill(c.why)}</span></li>`).join("")}
-        </ul>
-        <aside class="note-card"><span class="badge">${I("orbit")}</span><div><span class="label">Did you know?</span><p>${fill(rand(S.place.facts))}</p></div></aside>
-        <div class="actions">
-          <button class="btn primary lg" data-go="${last ? "finish" : "next"}">${last ? `${I("flag")} See mission results` : `${I("moon-star")} Sleep · start ${S.place.dayWord} ${S.day + 1}`}</button>
-        </div>
-      </section>`));
-    speak(`End of ${S.place.dayWord} ${S.day}.`);
-  }
-
-  function checkFail() {
-    if (S.air <= 0 || S.food <= 0 || S.health <= 0) { results(false); return true; }
-    return false;
-  }
-
-  /* ---------- 5. Results ---------- */
-  function chart() {
-    const W = 560, H = 220, padL = 30, padR = 12, padT = 16, padB = 28;
-    const x = d => padL + (d / DAYS) * (W - padL - padR);
-    const y = v => H - padB - (v / 100) * (H - padT - padB);
-    const line = k => `<polyline class="ln ${k}" points="${S.history.map(h => `${x(h.day).toFixed(1)},${y(h[k]).toFixed(1)}`).join(" ")}"/>`;
-    const grid = [0, 50, 100].map(v => `<line class="grid" x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}"/><text x="2" y="${y(v) + 4}">${v}</text>`).join("");
-    const days = Array.from({ length: DAYS + 1 }, (_, d) => `<text x="${x(d) - 3}" y="${H - 8}">${d}</text>`).join("");
-    const bands = Object.keys(S.stormByDay).map(Number).filter(d => d <= S.day)
-      .map(d => `<rect class="storm-band" x="${x(d - 1)}" y="${padT}" width="${x(1) - x(0)}" height="${H - padT - padB}" rx="6"/>`).join("");
-    return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Chart of air and water, food and crew health over the mission">
-      ${bands}${grid}${days}${line("air")}${line("food")}${line("health")}</svg>`;
-  }
-
-  function patch(stars) {
-    const moon = S.placeId === "moon";
-    const col = moon ? "#CFCBEA" : "#FF7A45";
-    const sky = moon ? "#1d1650" : "#6B2B4A";
-    const starPath = window.ICONS.star;
-    const starsSvg = [0, 1, 2].map(i => `<g transform="translate(${80 + i * 20} 150) scale(.8)" fill="${i < stars ? "#FFC23D" : "none"}" stroke="${i < stars ? "#FFC23D" : "#8f86c4"}" stroke-width="2">${starPath}</g>`).join("");
-    const label = `JUNIOR ASTRONAUT · ${S.place.name.toUpperCase()} · TEAM PHEONIX · 2026 · `;
-    return `<svg class="patch" viewBox="0 0 220 220" role="img" aria-label="Mission patch with ${stars} of 3 stars">
-      <defs><path id="ringPath" d="M110,110 m-86,0 a86,86 0 1,1 172,0 a86,86 0 1,1 -172,0"/><clipPath id="patchClip"><circle cx="110" cy="110" r="70"/></clipPath></defs>
-      <circle cx="110" cy="110" r="108" fill="${col}"/>
-      <circle cx="110" cy="110" r="100" fill="#120e30"/>
-      <text class="ring-text"><textPath href="#ringPath" textLength="535" lengthAdjust="spacing">${label}</textPath></text>
-      <g clip-path="url(#patchClip)">
-        <rect width="220" height="220" fill="${sky}"/>
-        <circle cx="70" cy="70" r="1.6" fill="#fff"/><circle cx="150" cy="60" r="1.2" fill="#fff"/><circle cx="120" cy="84" r="1" fill="#fff"/><circle cx="88" cy="100" r="1.2" fill="#fff"/>
-        ${moon ? `<circle cx="146" cy="82" r="13" fill="#2F7BFF"/><path d="M137 78c4-5 10-4 12 1s-2 7 1 10-5 7-9 3-8-11-4-14z" fill="#4FD18B"/>`
-               : `<circle cx="146" cy="82" r="9" fill="#FFF4D6"/><circle cx="146" cy="82" r="18" fill="#FFF4D6" opacity=".15"/>`}
-        <circle cx="110" cy="252" r="128" fill="${col}"/>
-        <path d="M88 128 a22 22 0 0 1 44 0z" fill="#fff"/><rect x="128" y="118" width="26" height="10" rx="5" fill="#fff"/>
-        <circle cx="104" cy="118" r="3" fill="#FFC23D"/><circle cx="116" cy="118" r="3" fill="#FFC23D"/>
-        <g transform="translate(60 112) skewX(-14)"><rect width="18" height="11" rx="1" fill="#2B3FA8"/></g>
-        ${starsSvg}
-      </g>
-      <circle cx="110" cy="110" r="70" fill="none" stroke="${col}" stroke-width="4"/>
-    </svg>`;
-  }
-
-  function results(success) {
-    const st = S.stats;
-    const why = S.air <= 0 ? "ran out of air and water" : S.food <= 0 ? "ran out of food" : "got too much radiation";
-    const lowest = Math.min(S.air, S.food, S.health);
-    const crit = [success, success && S.sent >= 100, success && lowest >= 40];
-    const stars = crit.filter(Boolean).length;
-    const days = success ? DAYS : S.day;
-    const storms = Object.entries(S.stormByDay).map(([d, s]) => ({ d: Number(d), s })).filter(o => o.d <= S.day);
-    const lesson = (ic, color, title, text) => `<div class="lesson"><span class="t-ic" style="color:${color};background:color-mix(in srgb, ${color} 16%, transparent)">${I(ic)}</span><div><b>${title}</b><p>${text}</p></div></div>`;
-    const crit3 = (on, text) => `<li><span class="star ${on ? "on" : ""}">${I("star")}</span>${text}</li>`;
-    render(`<div class="stage">
-      <section class="panel results-hero">
-        ${patch(stars)}
+    const cleaned = S.dayLog.find(x => x.k === "cleaned");
+    if (cleaned) lines.push(`You cleaned ${cleaned.n} solar panel${cleaned.n > 1 ? "s" : ""}.`);
+    S.dayLog.filter(x => x.text).forEach(x => lines.push(esc(x.text)));
+    if (!lines.length) lines.push("A quiet day. Remember: dusty panels make less power, and plants need harvesting!");
+    S.modalOpen = true;
+    openModal(`<div class="happened">
+      <h1>What happened · ${cap(S.place.dayWord)} ${S.day}</h1>
+      <div class="hap-grid">
+        <div class="hap-list">${card("shield", "Shielding")}${card("power", "Power")}${card("life", "Life Support")}${card("food", "Greenhouse")}</div>
         <div>
-          <span class="label">${success ? "Mission complete" : "Mission ended early"} · ${S.place.name}</span>
-          <h1>${success ? (stars === 3 ? "Perfect mission, Commander!" : "Your crew made it home!") : "The crew had to fly home"}</h1>
-          <p class="muted">${success
-            ? `Your crew lived at the ${S.place.name} for ${DAYS} ${S.place.dayWord}s.`
-            : `On ${S.place.dayWord} ${S.day} the crew ${why}. They flew home safely; real missions have backup plans too. Try a new strategy!`}</p>
-          <ul class="criteria">
-            ${crit3(crit[0], `Keep the crew safe for all ${DAYS} ${S.place.dayWord}s`)}
-            ${crit3(crit[1], `Send 100+ science data to Earth <span class="muted">(you sent ${S.sent})</span>`)}
-            ${crit3(crit[2], `Finish with every meter at 40 or more`)}
+          <div class="note-card"><b>${D.commander}</b>${lines.slice(0, 5).join(" ")}</div>
+          <div class="note-card"><b class="yellow">Did you know?</b>${fill(rand(S.place.facts))}</div>
+          <div class="note-card"><b>Science sent to Earth</b>${S.science} total${S.stored ? ` · ${S.stored} still waiting at the Lab — send it from the Radio Dish!` : ""}</div>
+        </div>
+      </div>
+      <div class="cont-row"><button class="btn-primary" data-act="next-day">${S.day >= DAYS ? "See results" : "Continue"}</button></div>
+    </div>`);
+  }
+  function nextDay() {
+    closeModal();
+    if (S.day >= DAYS) return results(true);
+    S.day++; startDay();
+  }
+  function fail(reason) { if (S.over) return; S.failReason = reason; results(false); }
+
+  /* =========================================================
+     RESULTS (design page 9)
+     ========================================================= */
+  function chart() {
+    const W = 560, H = 210, pl = 30, pr = 10, pt = 10, pb = 24;
+    const x = d => pl + (d / DAYS) * (W - pl - pr);
+    const y = v => H - pb - (v / 100) * (H - pt - pb);
+    const pts = [{ d: 0, life: 80, power: 80, shield: 75 }, ...S.hist];
+    const line = (k, c) => `<polyline fill="none" stroke="${c}" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round" points="${pts.map(p => `${x(p.d).toFixed(1)},${y(p[k]).toFixed(1)}`).join(" ")}"/>`;
+    const grid = [0, 50, 100].map(v => `<line x1="${pl}" x2="${W - pr}" y1="${y(v)}" y2="${y(v)}" stroke="#2c3a80"/><text x="2" y="${y(v) + 4}">${v}</text>`).join("");
+    const days = Array.from({ length: DAYS + 1 }, (_, d) => `<text x="${x(d) - 3}" y="${H - 6}">${d}</text>`).join("");
+    const storms = S.stats.stormsFaced.map((_, i) => "").join("");
+    return `<svg class="res-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="How Life Support, Power and Shielding changed during the mission">${grid}${days}${storms}${line("life", "#7cc4ff")}${line("power", "#ffd54a")}${line("shield", "#ff6b35")}</svg>
+      <div class="legend"><span><i style="background:#7cc4ff"></i>Life Support</span><span><i style="background:#ffd54a"></i>Power</span><span><i style="background:#ff6b35"></i>Shielding</span></div>`;
+  }
+  function results(success) {
+    S.over = true;
+    closeModal(true);
+    const L = Math.round(S.life), P = Math.round(S.power), Sh = Math.round(S.shield);
+    const crit = [success, success && S.science >= 60, success && Math.min(L, P, Sh) >= 40];
+    const stars = crit.filter(Boolean).length;
+    const final = S.science * 3 + L + P + Sh + (success ? 100 : 0);
+    const st = S.stats;
+    const learned = [
+      "Shielding uses power, and power is limited. Every choice has a gain and a cost.",
+      `You cleaned solar panels ${st.cleaned} time${st.cleaned === 1 ? "" : "s"}. Dust ${S.placeId === "mars" ? "on Mars" : "on the Moon"} really cuts power.`,
+      st.stormsFaced.length ? `You faced ${st.stormsFaced.length} real solar storm${st.stormsFaced.length > 1 ? "s" : ""} from NASA DONKI: ${st.stormsFaced.map(s => `${s.date} (${s.speed.toLocaleString()} km/s, Shielding −${s.lost}${s.mostly === "shelter" ? ", in the shelter" : ""})`).join("; ")}.` : "No storm reached you this time.",
+      st.lateWarnings ? `${st.lateWarnings} storm warning${st.lateWarnings > 1 ? "s were" : " was"} late because your radio was quiet. Staying in touch with Earth gives you more time.` : "Your radio contact with Earth gave you early storm warnings.",
+      S.placeId === "mars" ? `Messages to Mars took about ${S.delayMin} minutes each way today, so help from Earth comes slowly.` : "On the Moon, Earth answers in about 1.3 seconds — help is fast.",
+      `You harvested the greenhouse ${st.harvested} time${st.harvested === 1 ? "" : "s"} and studied ${st.rocks} rock${st.rocks === 1 ? "" : "s"}.`
+    ];
+    render(`<section class="screen results">
+      <h1>${success ? "Mission success!" : "Mission over"}</h1>
+      ${success ? "" : `<p class="muted" style="text-align:center">${esc(S.failReason)} The crew flew home safely — try a new plan!</p>`}
+      <div class="stars" aria-label="${stars} of 3 stars">${[0, 1, 2].map(i => `<span class="${i < stars ? "on" : "off"}">★</span>`).join("")}</div>
+      <div class="res-grid">
+        <div class="card">
+          <h2>Score</h2>
+          <div class="score-row"><span>Final</span><b class="yellow">${final}</b></div>
+          <div class="score-row"><span>Science</span><b>${S.science}</b></div>
+          <div class="score-row"><span>Life · Power · Shield</span><b>${L} · ${P} · ${Sh}</b></div>
+          <div class="score-row"><span>${cap(S.place.dayWord)}s survived</span><b>${success ? DAYS : S.day - 1} of ${DAYS}</b></div>
+          ${chart()}
+          <ul class="decisions" style="margin-top:14px">
+            <li>${crit[0] ? "★" : "☆"} Keep the crew safe for ${DAYS} ${S.place.dayWord}s</li>
+            <li>${crit[1] ? "★" : "☆"} Send 60+ science to Earth</li>
+            <li>${crit[2] ? "★" : "☆"} End with all three meters at 40+</li>
           </ul>
         </div>
-      </section>
-      ${S.stored ? `<div class="callout">${I("radio")} ${S.stored} science data never reached Earth, because the radio was off at the end.</div>` : ""}
-      <div class="grid-2">
-        <section class="panel">
-          <span class="label">Telemetry</span><h2>Your base over time</h2>
-          <div class="chart-wrap">${chart()}</div>
-          <div class="legend"><span><i style="background:var(--sky)"></i>Air &amp; Water</span><span><i style="background:var(--leaf)"></i>Food</span><span><i style="background:var(--rose)"></i>Crew Health</span><span><i style="background:rgba(255,93,93,.4);height:10px"></i>Solar storm</span></div>
-        </section>
-        <section class="panel">
-          <span class="label">Debrief</span><h2>What you practised</h2>
-          <div class="lessons">
-            ${lesson("wind", "var(--sky)", "Life support", `Your lowest Air & Water was ${st.lowAir}. Machines that recycle air and water need steady power.`)}
-            ${lesson("shield", "var(--rose)", "Radiation shielding", `${storms.length} solar storm${storms.length === 1 ? "" : "s"}, ${st.warnings} warning${st.warnings === 1 ? "" : "s"}, ${st.surprises} surprise${st.surprises === 1 ? "" : "s"}. Storms took ${st.stormDamage} health.`)}
-            ${lesson("zap", "var(--sun)", "Power budgeting", `You shared ${st.powerUsed} power over ${days} ${S.place.dayWord}s. Power for one system is power another system doesn't get.`)}
-            ${lesson("sprout", "var(--leaf)", "Food production", `Your lowest food was ${st.lowFood}. The greenhouse needs power every ${S.place.dayWord}.`)}
-            ${lesson("radio-tower", "var(--mint)", "Communication delay", `Radio on for ${st.commsDays} of ${days} ${S.place.dayWord}s. Messages took ${delayText()} each way${S.placeId === "mars" ? ", so on Mars you often had to decide alone." : "."}`)}
-          </div>
-        </section>
+        <div class="card">
+          <h2>Key decisions</h2>
+          <ul class="decisions">${S.decisions.slice(-8).map(d => `<li>${esc(cap(d))}</li>`).join("") || "<li>No decisions this time.</li>"}</ul>
+          <h2>What you learned</h2>
+          <ul class="learned">${learned.map(l => `<li>${esc(l)}</li>`).join("")}</ul>
+        </div>
       </div>
-      <div class="grid-2">
-        <section class="panel">
-          <span class="label">Mission log</span><h2>Your decisions</h2>
-          <ol class="log">${S.log.map(l => `<li><span>${S.place.dayWord.toUpperCase()} ${l.day}</span><div>${l.text}</div></li>`).join("")}</ol>
-        </section>
-        <section class="panel">
-          <span class="label">NASA DONKI</span><h2>Real storms in this mission</h2>
-          <ul class="storms-used">${storms.map(o => `<li><b>${dayName()} ${o.d}:</b> ${o.s.source === "practice" ? "Practice storm (no NASA data loaded)"
-            : `CME on ${esc(o.s.date)}, ${o.s.speed.toLocaleString()} km/s, level ${o.s.level} · ${o.s.source === "live" ? "live" : "archived"} NASA data${o.s.link ? ` · <a href="${esc(o.s.link)}" target="_blank" rel="noopener">record</a>` : ""}`}</li>`).join("") || "<li>No storms reached you this time.</li>"}</ul>
-        </section>
+      <div class="res-btns">
+        <button class="btn-primary" data-start="${S.placeId}">Play again</button>
+        <button class="btn-secondary" data-start="${S.placeId === "moon" ? "mars" : "moon"}">Switch destination</button>
+        <button class="btn-secondary" data-go="home">Main menu</button>
       </div>
-      <div class="actions">
-        <button class="btn primary lg" data-start="${S.placeId}">${I("rocket")} Play again</button>
-        <button class="btn lg" data-start="${S.placeId === "moon" ? "mars" : "moon"}">${I("orbit")} Try ${S.placeId === "moon" ? "Mars" : "the Moon"}</button>
-        <button class="btn ghost" data-go="home">${I("house")} Main menu</button>
-      </div>
-    </div>`);
-    speak(success ? `Mission complete! You earned ${stars} stars.` : `Mission ended early. The crew ${why}.`);
+    </section>`);
   }
 
-  /* ================= INPUT ================= */
+  /* =========================================================
+     HUD (design page 5)
+     ========================================================= */
+  function buildHud() {
+    const meter = m => `<div class="panel"><h4>${m.name} <em id="${m.k}-st"></em></h4><div class="mbar"><i id="${m.k}-bar"></i></div>
+      <svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true"><polyline id="${m.k}-sp"/></svg></div>`;
+    $("#hud").innerHTML = `${METERS.map(meter).join("")}
+      <div class="panel radar"><div class="scope" id="scope"><span class="blip" id="blip"></span></div><button class="alert-btn" id="alert-btn" data-act="sunwatch" aria-label="Open Sun Watch: real NASA solar storms">Alert</button></div>
+      <div class="panel"><h4>Mission Control</h4><div class="sig" id="sig">${[30, 48, 26, 42, 20, 36, 28].map((h, i) => `<i style="height:${h}px;animation-delay:${i * 0.12}s"></i>`).join("")}</div><div class="sub" id="mc-st"></div></div>
+      <div class="panel"><h4>Greenhouse <em id="food-st"></em></h4><div class="mbar"><i id="food-bar"></i></div><h4 style="margin-top:6px">Crew</h4><div class="sub" id="crew-st"></div></div>`;
+  }
+  function updateHud() {
+    METERS.forEach(m => {
+      const v = Math.round(S[m.k]); const [w, cls, col] = status(v);
+      const st = $(`#${m.k}-st`); st.textContent = `${w} ${v}`; st.className = cls;
+      const b = $(`#${m.k}-bar`); b.style.width = v + "%"; b.style.background = col;
+      const a = S.sparks[m.k];
+      $(`#${m.k}-sp`).setAttribute("points", a.map((y, i) => `${(i / 39) * 100},${28 - (y / 100) * 26}`).join(" "));
+      $(`#${m.k}-sp`).setAttribute("stroke", col);
+    });
+    const fv = Math.round(S.food), [fw, fcls, fcol] = status(fv);
+    $("#food-st").textContent = `${fw} ${fv}`; $("#food-st").className = fcls;
+    $("#food-bar").style.width = fv + "%"; $("#food-bar").style.background = fcol;
+    $("#g-day").textContent = `${cap(S.place.dayWord)} ${S.day} of ${DAYS}`;
+    $("#g-dayfill").style.width = Math.min(100, (S.t / DAY_LEN) * 100) + "%";
+    $("#g-sci").textContent = `Science ${S.science}`;
+
+    // radar
+    const scope = $("#scope"), ab = $("#alert-btn"), blip = $("#blip");
+    if (S.storm) {
+      scope.classList.add("hot"); ab.classList.add("pulse");
+      ab.textContent = S.storm.phase === "coming" ? `${Math.ceil(S.storm.eta)}s` : "Storm!";
+      const k = S.storm.phase === "coming" ? S.storm.eta / S.storm.total : 0;
+      blip.hidden = false; blip.style.left = `${46 - 40 * k}px`; blip.style.top = `${42 - 30 * k}px`;
+    } else { scope.classList.remove("hot"); ab.classList.remove("pulse"); ab.textContent = "Alert"; blip.hidden = true; }
+
+    // mission control
+    const sig = $("#sig"), mc = $("#mc-st");
+    sig.className = "sig";
+    if (S.ask) { sig.classList.add("wait"); mc.innerHTML = `Reply in ${Math.ceil(S.ask.left)} s…`; }
+    else if (S.pending && !S.modalOpen) { mc.innerHTML = `<button class="mc-btn" data-act="reopen">${S.pending.tip ? "Reply arrived — Decide" : "Decide"}</button>`; }
+    else if (S.linkDay >= S.day) mc.textContent = "Earth link: strong today";
+    else { sig.classList.add("off"); mc.textContent = "Radio quiet — visit the dish"; }
+
+    // crew
+    const w = where();
+    $("#crew-st").textContent = `4 astronauts · ${S.storm && S.storm.phase === "hit" ? (w === "shelter" ? "in the shelter" : "in danger!") : S.food <= 0 ? "hungry!" : S.life < 25 ? "short of air!" : "all well"}`;
+
+    // ticker
+    const tk = $("#g-ticker");
+    let msg = "", cls = "";
+    const avgDust = S.dust.reduce((a, b) => a + b, 0) / 3;
+    if (S.storm && S.storm.phase === "coming") { msg = `Solar storm arrives in ${Math.ceil(S.storm.eta)} s — go to the Storm Shelter!`; cls = "danger"; }
+    else if (S.storm) { msg = w === "shelter" ? "Storm hitting! Stay in the shelter…" : "Storm hitting! Get to the Storm Shelter!"; cls = "danger"; }
+    else if (S.blackout > 0) { msg = `Power is out! ${Math.max(0, Math.ceil(10 - S.blackout))} s until shutdown — clean the panels!`; cls = "danger"; }
+    else if (S.leakAt) { msg = `Air leak in the ${World.STATIONS.find(s => s.id === S.leakAt).label}! Patch it.`; cls = "warn"; }
+    else if (S.broken) { msg = "The water recycler is broken — fix it in the Life Support room."; cls = "warn"; }
+    else if (S.ask) { msg = `Message to Earth… reply in ${Math.ceil(S.ask.left)} s`; cls = "warn"; }
+    else if (S.pending) { msg = "Mission Control is waiting for your decision — tap Decide."; cls = "warn"; }
+    else if (S.power < 30 && avgDust > 0.35) { msg = "Power is low. Clean the dusty solar panels (left, outside)."; cls = "warn"; }
+    else if (S.shield < 35) { msg = "Shielding is low. Charge it at the Shield Generator."; cls = "warn"; }
+    else if (S.growth >= 1 && S.food < 85) msg = "The greenhouse is ready to harvest!";
+    else if (S.carrying) msg = "Take your rocks to the Science Lab.";
+    else if (S.stored) msg = `Send ${S.stored} data from the Radio Dish (right, outside).`;
+    else if (S.samples.some(s => !s.taken)) msg = "Rock samples are waiting outside, past the Radio Dish.";
+    else msg = `Scanning deep space… all systems normal`;
+    tk.textContent = msg; tk.className = `ticker ${cls}`;
+  }
+
+  function toast(html, ms = 3500) {
+    const t = $("#g-toast");
+    t.innerHTML = html; t.hidden = false;
+    t.style.animation = "none"; void t.offsetWidth; t.style.animation = "";
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.hidden = true), ms);
+  }
+
+  /* ---------- modals ---------- */
+  function openModal(html) {
+    if (S) { S.modalOpen = true; Object.keys(World.keys).forEach(k => (World.keys[k] = false)); }
+    mbox.className = "modal-box"; mbox.innerHTML = html; modal.hidden = false;
+    const f = mbox.querySelector("button.btn-primary:not([disabled]), button"); if (f) f.focus({ preventScroll: true });
+  }
+  function closeModal(force) {
+    modal.hidden = true; mbox.innerHTML = "";
+    SunWatch.close();
+    if (S) S.modalOpen = false;
+    if (force) return;
+  }
+  function pauseMenu() {
+    openModal(`<div class="pause"><h2>Paused</h2>
+      <button class="btn-primary" data-act="resume">Resume</button>
+      <button class="btn-secondary" data-act="sunwatch">Sun Watch (NASA data)</button>
+      <button class="btn-secondary" data-act="controls">Controls</button>
+      <button class="btn-secondary" data-act="quit">Quit to main menu</button></div>`);
+  }
+  function sunWatchModal() {
+    const back = S && !S.over ? "resume" : "close-sw";
+    const html = `<div class="sunwatch-wrap"><h2>Sun Watch</h2>
+      <p class="lead">Each dot is a <b>real CME</b> from NASA's DONKI database. Drag the time slider or press Play to watch them fly out from the Sun at their real measured speeds. Tap a dot to read its record.</p>
+      <div id="sw-root"></div>
+      <div class="sw-close"><button class="btn-primary" data-act="${back}">${S && !S.over ? "Back to the base" : "Close"}</button></div></div>`;
+    if (S && !S.over) openModal(html); else { modal.hidden = false; mbox.className = "modal-box"; mbox.innerHTML = html; }
+    SunWatch.open($("#sw-root"), { storm: S && S.storm ? S.storm.st : null, placeId: S ? S.placeId : dest });
+  }
+
+  /* =========================================================
+     INPUT
+     ========================================================= */
   document.addEventListener("click", e => {
     const t = e.target.closest("button");
     if (!t) return;
     if (t.classList.contains("term")) return showTerm(t.dataset.term);
-    if (t.id === "popup-close") return hideTerm();
-    if (t.id === "btn-home") return home();
-    if (t.id === "btn-read") {
-      readAloud = !readAloud;
-      t.setAttribute("aria-pressed", readAloud);
-      t.innerHTML = `${I(readAloud ? "volume-2" : "volume-x")}<span class="txt">Read aloud: ${readAloud ? "on" : "off"}</span>`;
-      if (!readAloud && "speechSynthesis" in window) speechSynthesis.cancel(); else speak("Read aloud is on.");
-      return;
+    if (t.id === "popup-close") return ($("#popup").hidden = true);
+    if (t.id === "btn-a11y") { const on = document.documentElement.classList.toggle("big"); t.setAttribute("aria-pressed", on); World.resize(); return; }
+    if (t.id === "g-menu") return pauseMenu();
+    if (t.dataset.dest) { dest = t.dataset.dest; return destination(); }
+    if (t.dataset.start) return startMission(t.dataset.start);
+    if (t.dataset.brief) {
+      const [mode, step] = t.dataset.brief.split(":");
+      if (step === "skip" || step === "end") return mode === "howto" ? home() : startMission(dest);
+      return briefing(mode, +step);
     }
-    if (t.dataset.start) return newGame(t.dataset.start);
-    if (t.dataset.choice) return pickChoice(Number(t.dataset.choice));
-    if (t.dataset.inc || t.dataset.dec || t.dataset.batt) {
-      const sel = t.dataset.inc ? `[data-inc="${t.dataset.inc}"]` : t.dataset.dec ? `[data-dec="${t.dataset.dec}"]` : `[data-batt="${t.dataset.batt}"]`;
-      if (t.dataset.inc) { if (preview().left > 0 && S.alloc[t.dataset.inc] < MAX_UNITS) S.alloc[t.dataset.inc]++; }
-      else if (t.dataset.dec) { if (S.alloc[t.dataset.dec] > 0) S.alloc[t.dataset.dec]--; }
-      else S.useBattery = clamp(S.useBattery + Number(t.dataset.batt), 0, S.battery);
-      const y = window.scrollY;
-      plan();
-      window.scrollTo(0, y);
-      const b = app.querySelector(sel);
-      if (b && !b.disabled) b.focus({ preventScroll: true });
-      return;
+    if (t.dataset.opt !== undefined && S && S.pending) { S.pending.sel = +t.dataset.opt; return showChoices(); }
+    const go = { home, dest: destination, howto: () => briefing("howto"), sources, brief: () => briefing("start"), sunwatch: sunWatchModal }[t.dataset.go];
+    if (go) return go();
+    switch (t.dataset.act) {
+      case "storm-choices": S.pending = { ev: D.storm, sel: null, tip: false, storm: true }; return showChoices();
+      case "confirm": return confirmChoice();
+      case "ask":
+        if (S.power < R.askCost || S.ask) return;
+        S.power -= R.askCost; S.stats.asked++;
+        S.ask = { left: S.placeId === "moon" ? 2.6 : clamp(S.delayMin * 2, 6, 44), live: true };
+        return showChoices();
+      case "minimize": closeModal(); return toast("Keep working! Tap Decide in the Mission Control panel when the reply arrives.", 4500);
+      case "reopen": openModal(""); return showChoices();
+      case "next-day": return nextDay();
+      case "resume": closeModal(); if (S && S.pending && !S.ask) { openModal(""); showChoices(); } return;
+      case "close-sw": SunWatch.close(); modal.hidden = true; return;
+      case "sunwatch": return sunWatchModal();
+      case "controls": return openModal(`<div class="pause"><h2>Controls</h2><p>Walk: ← → or A D, or tap the ground</p><p>Jump: Space or W</p><p>Work: stand at a machine and hold E</p><button class="btn-primary" data-act="resume">Back to the base</button></div>`);
+      case "quit": return home();
     }
-    const screens = {
-      home, choose, howto, glossary, sources,
-      event: eventScreen, plan, endday: endDay,
-      next: () => { S.day++; startDay(); },
-      finish: () => results(true)
-    };
-    const go = screens[t.dataset.go];
-    if (go) go();
   });
+  // live-update countdowns inside the choices modal
+  setInterval(() => {
+    if (!S || !S.modalOpen) return;
+    const a = document.getElementById("ask-left"); if (a && S.ask) a.textContent = `${Math.ceil(S.ask.left)} s`;
+    const e = document.getElementById("storm-eta"); if (e && S.storm) e.textContent = Math.max(0, Math.ceil(S.storm.eta));
+  }, 250);
 
-  // keyboard: A/B/C or 1/2/3 to pick a choice
   document.addEventListener("keydown", e => {
-    if (e.key === "Escape") return hideTerm();
-    if (!popup.hidden || e.metaKey || e.ctrlKey || e.altKey) return;
-    const idx = { a: 0, b: 1, c: 2, 1: 0, 2: 1, 3: 2 }[e.key.toLowerCase()];
-    if (idx !== undefined && app.querySelector(`[data-choice="${idx}"]`)) pickChoice(idx);
+    if (e.key === "Escape") {
+      if (!$("#popup").hidden) return ($("#popup").hidden = true);
+      if (S && !S.over && !gameEl.hidden && !S.modalOpen) return pauseMenu();
+    }
   });
 
-  /* ---------- glossary popup ---------- */
-  const popup = document.getElementById("popup");
+  // touch controls
+  document.querySelectorAll("#touch button").forEach(b => {
+    const k = b.dataset.k;
+    const on = e => { e.preventDefault(); World.keys[k] = true; b.classList.add("down"); if (k === "left" || k === "right") World.setTarget(null); };
+    const off = () => { World.keys[k] = false; b.classList.remove("down"); };
+    b.addEventListener("pointerdown", on); b.addEventListener("pointerup", off); b.addEventListener("pointerleave", off); b.addEventListener("pointercancel", off);
+  });
+
   function showTerm(term) {
     const key = Object.keys(D.glossary).find(k => k.toLowerCase() === term.toLowerCase());
-    popup.querySelector("h3").textContent = cap(term);
-    popup.querySelector("p").textContent = key ? D.glossary[key] : "No explanation yet.";
-    popup.hidden = false;
-    popup.querySelector("#popup-close").focus();
-    speak(`${term}. ${key ? D.glossary[key] : ""}`);
+    $("#popup-title").textContent = cap(term);
+    $("#popup-text").textContent = key ? D.glossary[key] : "";
+    $("#popup").hidden = false; $("#popup-close").focus();
   }
-  function hideTerm() { popup.hidden = true; }
 
   /* ---------- start ---------- */
-  document.getElementById("btn-read").innerHTML = `${I("volume-x")}<span class="txt">Read aloud: off</span>`;
-  document.getElementById("brand-mark").innerHTML = I("rocket");
-  home();
-  Donki.load().then(() => {
-    const chip = document.getElementById("data-chip");
-    if (chip) chip.innerHTML = dataChip();
-  });
+  World.init($("#world"), { isRunning: () => S && !S.over && !S.modalOpen, view: () => ({
+    life: S.life, power: S.power, shield: S.shield, food: S.food, growth: S.growth, dust: S.dust,
+    broken: S.broken, leakAt: S.leakAt, samples: S.samples, carrying: S.carrying, stored: S.stored,
+    sending: S.sending > 0, boosting: S.boosting > 0, storm: S.storm && S.storm.phase === "hit" ? 1 : 0,
+    stormSoon: !!(S.storm && S.storm.phase === "coming"), speedMul: S.speedMul, lamps: S.power > 0,
+    haze: S.placeId === "mars" && S.solarMul < 1 ? 1 - S.solarMul : 0
+  }), prompt, done, hold, pickup });
+  window.__lo = { get S() { return S; }, update, startMission, endDay };   // debug hook for testing
+  requestAnimationFrame(loop);
+  loading();
 })();

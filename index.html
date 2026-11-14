@@ -2,45 +2,64 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Junior Astronaut – Mission Control</title>
-  <meta name="description" content="A browser game for kids aged 7–12: run a Moon or Mars base, share limited power, and survive real NASA solar storms. Team Pheonix – NASA Space Apps Challenge 2026.">
-  <meta name="theme-color" content="#0d0a24">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Lunar Outpost</title>
+  <meta name="description" content="Lunar Outpost: walk your astronaut around a Moon or Mars base, keep Life Support, Power and Shielding above zero, and survive real NASA solar storms. Team Pheonix – NASA Space Apps Challenge 2026.">
+  <meta name="theme-color" content="#0a1236">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Nunito:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=3">
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css?v=4">
 </head>
 <body>
-  <div class="sky" aria-hidden="true"></div>
-
-  <header class="topbar">
-    <button id="btn-home" class="brand" aria-label="Go to main menu">
-      <span class="brand-mark" id="brand-mark"></span>
-      <span>Junior Astronaut<small>Mission Control</small></span>
-    </button>
-    <button id="btn-read" class="btn sm" aria-pressed="false" aria-label="Read aloud">Read aloud: off</button>
-  </header>
-
+  <!-- menu screens (loading, home, destination, briefing, sources, results) -->
   <main id="app" aria-live="polite"></main>
 
-  <div id="popup" class="popup" role="dialog" aria-modal="true" aria-labelledby="popup-title" hidden>
-    <div class="popup-box">
-      <span class="label">Space word</span>
+  <!-- the playable game -->
+  <section id="game" hidden aria-label="Lunar Outpost game">
+    <header class="g-top">
+      <span class="pill" id="g-place">Moon outpost</span>
+      <div class="g-day"><b id="g-day">Day 1 of 8</b><span class="dayline"><i id="g-dayfill"></i></span></div>
+      <b class="g-sci" id="g-sci">Science 0</b>
+      <button class="btn-secondary sm" id="g-menu">Menu</button>
+    </header>
+    <div class="viewport">
+      <canvas id="world" aria-label="Your outpost. Use arrow keys or A and D to walk, W or Space to jump, hold E to work."></canvas>
+      <div class="ticker" id="g-ticker" role="status">Scanning deep space…</div>
+      <div class="toast" id="g-toast" hidden></div>
+      <div class="touch" id="touch" aria-hidden="true">
+        <div class="touch-l">
+          <button data-k="left" aria-label="Walk left">◀</button>
+          <button data-k="right" aria-label="Walk right">▶</button>
+        </div>
+        <div class="touch-r">
+          <button data-k="jump" aria-label="Jump">Jump</button>
+          <button data-k="act" class="act" aria-label="Work">E</button>
+        </div>
+      </div>
+    </div>
+    <div class="hud" id="hud"></div>
+  </section>
+
+  <div id="modal" class="overlay" hidden><div class="modal-box" role="dialog" aria-modal="true"></div></div>
+
+  <div id="popup" class="overlay top" hidden>
+    <div class="modal-box small" role="dialog" aria-modal="true" aria-labelledby="popup-title">
       <h3 id="popup-title"></h3>
-      <p></p>
-      <button id="popup-close" class="btn primary">Got it</button>
+      <p id="popup-text"></p>
+      <button class="btn-primary" id="popup-close">Got it</button>
     </div>
   </div>
 
-  <footer>TEAM PHEONIX · NASA SPACE APPS CHALLENGE 2026 · USES NASA OPEN DATA · NOT AN OFFICIAL NASA PRODUCT</footer>
+  <button id="btn-a11y" class="a11y" aria-pressed="false" aria-label="Bigger text">A+</button>
 
-  <script src="js/config.js?v=3"></script>
-  <script src="js/icons.js?v=3"></script>
-  <script src="js/scene.js?v=3"></script>
-  <script src="js/data-events.js?v=3"></script>
-  <script src="js/donki-archive.js?v=3"></script>
-  <script src="js/donki.js?v=3"></script>
-  <script src="js/game.js?v=3"></script>
+  <script src="js/config.js?v=4"></script>
+  <script src="js/scene.js?v=4"></script>
+  <script src="js/data-events.js?v=4"></script>
+  <script src="js/donki-archive.js?v=4"></script>
+  <script src="js/donki.js?v=4"></script>
+  <script src="js/sunwatch.js?v=4"></script>
+  <script src="js/world.js?v=4"></script>
+  <script src="js/game.js?v=4"></script>
 </body>
 </html>
