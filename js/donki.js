@@ -50,7 +50,7 @@ window.Donki = (() => {
     const start = new Date(end.getTime() - CONFIG.LIVE_DAYS_BACK * 86400e3);
     const url = `https://api.nasa.gov/DONKI/CME?startDate=${fmt(start)}&endDate=${fmt(end)}&api_key=${encodeURIComponent(CONFIG.NASA_API_KEY)}`;
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 8000);
+    const timer = setTimeout(() => ctrl.abort(), 20000);   // NASA's API is sometimes slow
     const res = await fetch(url, { signal: ctrl.signal });
     clearTimeout(timer);
     if (!res.ok) throw new Error("DONKI answered " + res.status);

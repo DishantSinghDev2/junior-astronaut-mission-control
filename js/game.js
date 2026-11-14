@@ -89,7 +89,9 @@
     };
     const tick = setInterval(() => set(Math.min(88, p + 4)), 100);
     const fonts = (document.fonts && document.fonts.ready) || Promise.resolve();
-    await Promise.all([fonts.then(() => set(35)), Donki.load().then(() => set(80, "Talking to NASA DONKI…")), wait(1300)]);
+    set(10, "Talking to NASA DONKI…");
+    const donki = Donki.load().then(() => set(90));
+    await Promise.all([fonts.then(() => set(35)), Promise.race([donki, wait(6000)]), wait(1300)]);   // don't keep kids waiting; live data can still arrive later
     clearInterval(tick);
     set(100);
     await wait(350);
