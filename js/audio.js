@@ -5,6 +5,8 @@
 window.Sound = (() => {
   const FILES = {
     intro: "assets/audio/intro.mp3",
+    lobby: "assets/audio/music-lobby.mp3",
+    drop: "assets/audio/music-drop.mp3",
     explore: "assets/audio/music-explore.mp3",
     storm: "assets/audio/music-storm.mp3",
     "vo-storm": "assets/audio/vo-storm.mp3",
@@ -16,7 +18,8 @@ window.Sound = (() => {
   let muted = false;
   try { muted = localStorage.getItem("lo-muted") === "1"; } catch (e) {}
   const els = {};
-  let current = null, musicVol = 0.32, voiceEl = null, ac = null;
+  let current = null, musicVol = 0.32, sfxVol = 0.9, voiceEl = null, ac = null;
+  try { const m = parseFloat(localStorage.getItem("lo-mvol")), v = parseFloat(localStorage.getItem("lo-svol")); if (m >= 0) musicVol = m; if (v >= 0) sfxVol = v; } catch (e) {}
 
   function el(name) {
     if (!els[name]) { const a = new Audio(FILES[name]); a.preload = "auto"; els[name] = a; }
@@ -38,7 +41,7 @@ window.Sound = (() => {
     current = name;
     if (prev) fade(prev, 0);
     if (!name || muted) return;
-    const a = el(name); a.loop = true; a.volume = 0;
+    const a = el(name); a.loop = name !== "drop"; a.currentTime = name === "drop" ? 0 : a.currentTime; a.volume = 0;
     a.play().then(() => fade(a, voiceEl ? musicVol * 0.35 : musicVol)).catch(() => {});
   }
   function voice(name, onEnd) {
@@ -55,7 +58,7 @@ window.Sound = (() => {
   // ---- synth sound effects ----
   function ctx() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } return ac; }
   function tone(f, dur, type = "sine", vol = 0.12, slide = 0, delay = 0) {
-    const c = ctx(); if (!c || muted) return;
+    const c = ctx(); if (!c || muted) return; vol *= sfxVol;
     const o = c.createOscillator(), g = c.createGain(), t = c.currentTime + delay;
     o.type = type; o.frequency.setValueAtTime(f, t); if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(40, f + slide), t + dur);
     g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
@@ -86,5 +89,7 @@ window.Sound = (() => {
   }
   function unlock() { const c = ctx(); if (c && c.state === "suspended") c.resume(); }
 
-  return { music, voice, stopVoice, sfx, setMuted, get muted() { return muted; }, unlock, el };
+  function setMusicVol(v) { musicVol = Math.max(0, Math.min(1, v)); try { localStorage.setItem("lo-mvol", musicVol); } catch (e) {} if (current && !muted) { const a = el(current); a.volume = voiceEl ? musicVol * 0.35 : musicVol; } }
+  function setSfxVol(v) { sfxVol = Math.max(0, Math.min(1, v)); try { localStorage.setItem("lo-svol", sfxVol); } catch (e) {} }
+  return { setMusicVol, setSfxVol, get musicVol() { return musicVol; }, get sfxVol() { return sfxVol; }, music, voice, stopVoice, sfx, setMuted, get muted() { return muted; }, unlock, el };
 })();

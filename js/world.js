@@ -48,7 +48,8 @@ window.World = (() => {
   const occRay = new THREE.Raycaster();
   const texCache = {};
   let vw = 800, vh = 600, parts = [];
-  let jumpLatch = false, beacons = [], suit = 0xff6b35;
+  let jumpLatch = false, beacons = [], suit = 0xff6b35, pod = null, podOn = false;
+  const remotes = new Map();
   const keys = { up: false, down: false, left: false, right: false, act: false, jump: false, camL: false, camR: false };
   const joy = { on: false, x: 0, y: 0, ox: 0, oy: 0, id: null };
   const v3 = (x, y, h = 0) => new THREE.Vector3(x * K, h, y * K);
@@ -139,7 +140,7 @@ window.World = (() => {
     place = placeId; pal = PAL[placeId];
     const seed = (site && site.seed) || 1234, r = rngFrom(seed);
     if (groupWorld) scene.remove(groupWorld);
-    groupWorld = new THREE.Group(); scene.add(groupWorld);
+    groupWorld = new THREE.Group(); scene.add(groupWorld); pod = null; podOn = false;
     scene.fog = new THREE.Fog(pal.fog, pal.fogNear, pal.fogFar);
     hemi.color.setHex(pal.hemiSky); hemi.groundColor.setHex(pal.hemiGround); hemi.intensity = pal.hemiI;
     sun.color.setHex(pal.sunColor); sun.intensity = pal.sunI;
@@ -218,6 +219,7 @@ window.World = (() => {
     samplesGroup = new THREE.Group(); groupWorld.add(samplesGroup);
     partGroup = new THREE.Group(); groupWorld.add(partGroup);
     playerRig = rig(suit); groupWorld.add(playerRig.obj);
+    remotes.forEach(r => remoteBuild(r));
     ringMesh = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.26, 40), new THREE.MeshBasicMaterial({ color: 0xffd54a, transparent: true, opacity: 0.85 }));
     ringMesh.rotation.x = -Math.PI / 2; groupWorld.add(ringMesh);
     crew = [[1650, 1520, 0x4c8dff], [1960, 1530, 0x2ecc71], [1650, 1280, 0xff6bd5]].map(([x, y, c]) => {
@@ -614,10 +616,10 @@ window.World = (() => {
     const gr = g.createRadialGradient(32, 32, 2, 32, 32, 30); gr.addColorStop(0, "rgba(255,255,255,1)"); gr.addColorStop(1, "rgba(255,255,255,0)");
     g.fillStyle = gr; g.fillRect(0, 0, 64, 64); puffTex = new THREE.CanvasTexture(c); return puffTex;
   }
-  function puff(x, y, size = 0.4, color, life = 0.9, rise = 0.6) {
+  function puff(x, y, size = 0.4, color, life = 0.9, rise = 0.6, h = 0.08) {
     if (!partGroup || parts.length > 260) return;
     const mat = new THREE.SpriteMaterial({ map: puffTexture(), color: color || (place === "mars" ? 0xd28a5c : 0xc9cbd6), transparent: true, depthWrite: false, opacity: 0.8 });
-    const s = new THREE.Sprite(mat); s.position.copy(v3(x, y, 0.08)); s.scale.setScalar(size * 0.5); partGroup.add(s);
+    const s = new THREE.Sprite(mat); s.position.copy(v3(x, y, h)); s.scale.setScalar(size * 0.5); partGroup.add(s);
     parts.push({ sprite: s, life: 1, max: life, size, rise, vx: (Math.random() - 0.5) * 0.3, vz: (Math.random() - 0.5) * 0.3 });
   }
   function burst(kind, x, y, n = 10) { for (let i = 0; i < n; i++) puff(x + (Math.random() - 0.5) * 50, y + (Math.random() - 0.5) * 50, 0.25, kind === "spark" ? 0xffd54a : undefined, 0.7, 1.2); }
@@ -702,7 +704,7 @@ window.World = (() => {
     const dt = Math.min(0.05, clock.getDelta());
     const v = handlers.view();
     placeRig(playerRig, P.x, P.y, P.face, heroMode ? ((t % 14) < 2.6 && t > 3 ? "Wave" : "Idle") : P.z > 0.05 ? "Wave" : holdId ? "Interact" : P.moving ? "Run" : "Idle", dt, P.z || 0);
-    playerRig.obj.visible = !P.inRover && where() !== "shelter";
+    playerRig.obj.visible = !P.inRover && where() !== "shelter" && !podOn;
     ringMesh.visible = playerRig.obj.visible && !cine; ringMesh.position.copy(v3(P.x, P.y, 0.02)); ringMesh.scale.setScalar((1 + Math.sin(t * 4) * 0.06) / (1 + (P.z || 0) * 0.8));
     crew.forEach(c => placeRig(c.rig, c.x, c.y, c.face, c.moving ? "Walk" : c.act && (c.actT -= dt) > 0 ? c.act : "Idle", dt));
     roverMesh.position.copy(v3(rover.x, rover.y, rover.speed > 5 ? Math.abs(Math.sin(t * 18)) * 0.012 : 0));
@@ -717,6 +719,7 @@ window.World = (() => {
       const o = objects.find(q => q.id === b.id), near = Math.hypot(o.x - P.x, o.y - P.y) < 220, tgt = v.guide && v.guide.id === b.id;
       b.g.visible = !near && !cine; b.beam.material.opacity = tgt ? 0.34 + Math.sin(t * 4) * 0.08 : 0.13; b.ring.scale.setScalar(1 + (tgt ? Math.sin(t * 4) * 0.08 : 0)); b.ring.material.opacity = tgt ? 0.8 : 0.35;
     });
+    remotesDraw(dt);
     overlays(v);
   }
   function placeRig(r, x, y, face, anim, dt, z = 0) {
@@ -828,8 +831,64 @@ window.World = (() => {
     return url;
   }
 
+  /* ---------------- teammates (multiplayer avatars) ---------------- */
+  function remoteBuild(r) {
+    if (!groupWorld) return;
+    r.rig = rig(r.suit); groupWorld.add(r.rig.obj);
+    r.rov = model("rover", 150); r.rov.visible = false; groupWorld.add(r.rov);
+    if (!r.tag && host) { r.tag = document.createElement("div"); r.tag.className = "rtag"; host.appendChild(r.tag); }
+    if (r.tag) { r.tag.style.setProperty("--c", "#" + r.suit.toString(16).padStart(6, "0")); r.tag.textContent = r.name; }
+  }
+  const remote = {
+    add(id, info) {
+      let r = remotes.get(id);
+      if (!r) { r = { id, name: info.name, suit: info.suit, x: 1800, y: 1500, z: 0, face: 0, anim: "Idle", inRover: false, t: null, say: "", sayT: 0, rig: null, rov: null, tag: null }; remotes.set(id, r); remoteBuild(r); }
+      else if (r.suit !== info.suit || r.name !== info.name) { r.name = info.name; r.suit = info.suit; if (r.rig) { groupWorld.remove(r.rig.obj); r.rig = rig(r.suit); groupWorld.add(r.rig.obj); } if (r.tag) { r.tag.style.setProperty("--c", "#" + r.suit.toString(16).padStart(6, "0")); r.tag.textContent = r.name; } }
+    },
+    update(id, s) { const r = remotes.get(id); if (r) { r.t = s; if (!r.seen) { r.seen = true; r.x = s.x; r.y = s.y; } } },
+    say(id, text) { const r = remotes.get(id); if (r) { r.say = text; r.sayT = 4; } },
+    remove(id) { const r = remotes.get(id); if (!r) return; if (groupWorld) { r.rig && groupWorld.remove(r.rig.obj); r.rov && groupWorld.remove(r.rov); } r.tag && r.tag.remove(); remotes.delete(id); },
+    clear() { [...remotes.keys()].forEach(k => remote.remove(k)); },
+    get count() { return remotes.size; },
+    list() { return [...remotes.values()].map(r => ({ id: r.id, name: r.name, suit: r.suit, x: r.x, y: r.y })); }
+  };
+  function remotesDraw(dt) {
+    remotes.forEach(r => {
+      if (!r.rig) remoteBuild(r);
+      const s = r.t; if (s) {
+        const k = Math.min(1, dt * 9);
+        r.x += (s.x - r.x) * k; r.y += (s.y - r.y) * k; r.z += ((s.z || 0) - r.z) * k; r.face = s.face; r.anim = s.anim; r.inRover = !!s.inRover;
+        if (r.rov) { r.rov.position.copy(v3(s.rx !== undefined ? s.rx : r.x, s.ry !== undefined ? s.ry : r.y, 0)); r.rov.rotation.y = -(s.ra || 0) + Math.PI / 2; r.rov.visible = !!s.inRover; }
+      }
+      r.rig.obj.visible = !r.inRover;
+      placeRig(r.rig, r.x, r.y, r.face, r.sayT > 0 && r.say ? "Wave" : r.anim, dt, r.z);
+      if (r.sayT > 0) r.sayT -= dt;
+      if (r.tag) {
+        const sc = toScreen(r.x, r.y, 1.25 + r.z); r.tag.hidden = sc.behind;
+        r.tag.style.transform = `translate(${sc.x}px, ${sc.y}px) translate(-50%, -100%)`;
+        const txt = r.sayT > 0 && r.say ? `${r.name}: ${r.say}` : r.name; if (r.tag._t !== txt) { r.tag.textContent = txt; r.tag._t = txt; }
+        r.tag.classList.toggle("say", r.sayT > 0);
+      }
+    });
+  }
+  function localState() {
+    if (!P) return null;
+    return { x: Math.round(P.x), y: Math.round(P.y), z: +(P.z || 0).toFixed(2), face: +P.face.toFixed(2), inRover: P.inRover, rov: true, rx: Math.round(rover.x), ry: Math.round(rover.y), ra: +rover.a.toFixed(2),
+      anim: P.z > 0.05 ? "Wave" : holdId ? "Interact" : P.moving ? "Run" : "Idle" };
+  }
+  /* ---------------- drop pod (the landing cinematic) ---------------- */
+  function setPod(on, x, y, h, fire) {
+    if (on && !pod) {
+      pod = new THREE.Group();
+      [["rocket_baseA", 120, 0], ["rocket_fuelA", 70, 0.9], ["rocket_topA", 70, 1.25]].forEach(([n, s, hh]) => { const m = model(n, s); m.position.y = hh; pod.add(m); });
+      pod.add(model("rocket_finsA", 130)); groupWorld.add(pod);
+    }
+    podOn = !!on; if (pod) { pod.visible = podOn; if (on) pod.position.copy(v3(x, y, h)); }
+    if (on && fire) for (let i = 0; i < 2; i++) puff(x + (Math.random() - 0.5) * 20, y + (Math.random() - 0.5) * 20, 0.8, 0xffa040, 0.5, -0.5, h - 0.1);
+  }
+  function podShrink(k) { if (pod) pod.scale.setScalar(Math.max(0.001, 1 - k)); if (pod && k <= 0) pod.scale.setScalar(1); }
   return {
-    snapshot, hero, HERO, texturesReady,
+    remote, localState, setPod, podShrink, snapshot, hero, HERO, texturesReady,
     setQuality(q) { if (!renderer) return; sun.castShadow = q === "high"; renderer.setPixelRatio(q === "high" ? Math.min(2, window.devicePixelRatio || 1) : 1); resize(); },
     setSuit(c) { suit = c; if (playerRig && groupWorld) { const o = playerRig.obj, pos = o.position.clone(), ry = o.rotation.y, sc = o.scale.x, vis = o.visible; groupWorld.remove(o); playerRig = rig(c); playerRig.obj.position.copy(pos); playerRig.obj.rotation.y = ry; playerRig.obj.scale.setScalar(sc); playerRig.obj.visible = vis; groupWorld.add(playerRig.obj); } },
     get yaw() { return camYaw; },

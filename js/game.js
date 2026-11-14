@@ -35,7 +35,7 @@
   const profile = { xp: 0, stars: 0, missions: 0, science: 0, lastSite: null, q: "high", suit: 0xff6b35, name: "Commander", tutorDone: false };
   try { Object.assign(profile, JSON.parse(localStorage.getItem(PROFILE_KEY) || "{}")); } catch (e) {}
   const saveProfile = () => { try { localStorage.setItem(PROFILE_KEY, JSON.stringify(profile)); } catch (e) {} };
-  let S = null, dest = "moon", site = null, last = 0, hudT = 0, toastTimer = null, introSeen = false, cineRun = null;
+  let S = null, dest = "moon", site = null, last = 0, hudT = 0, mpT = 0, lobbyOn = false, toastTimer = null, introSeen = false, cineRun = null;
 
   /* ---------- helpers ---------- */
   const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -102,7 +102,7 @@
 
   function home() {
     stopGame();
-    Sound.music(null);
+    Sound.music("lobby");
     const lvl = Math.floor(profile.xp / 100) + 1, xp = profile.xp % 100;
     const siteName = profile.lastSite || D.places.moon.sites[0].name;
     render(`<section class="title-screen">
@@ -142,8 +142,83 @@
     </section>`, { world: true, hero: true, place: "moon" });
   }
 
+  /* =========================================================
+     SQUAD LOBBY (solo, host or join) + multiplayer wiring
+     ========================================================= */
+  const QUICK = [["👋", "Hi!"], ["🆘", "Need help!"], ["⚡", "Storm! Shelter!"], ["👍", "Nice!"]];
+  const hexc = c => "#" + (c >>> 0).toString(16).padStart(6, "0");
+  const inMission = () => S && !S.attract && !S.intro && S.placeId;
+  function myInfo() { return { name: profile.name, suit: profile.suit }; }
+  function slotsHtml() {
+    const list = MP.role === "off" ? [{ id: "me", name: profile.name, suit: profile.suit, host: true, me: true }] : MP.roster.map(r => ({ ...r, me: r.id === MP.id }));
+    return Array.from({ length: 4 }, (_, i) => {
+      const p = list[i];
+      return p ? `<div class="slot on${p.me ? " me" : ""}" style="--c:${hexc(p.suit)}"><div class="disc">${esc(p.name.charAt(0).toUpperCase())}</div><b>${esc(p.name)}</b><span>${p.host ? "HOST" : "CREW"}${p.me ? " · YOU" : ""}</span></div>`
+        : `<div class="slot"><div class="disc">+</div><b>Open slot</b><span>${MP.role === "off" ? "solo mission" : "waiting…"}</span></div>`;
+    }).join("");
+  }
+  function sideHtml() {
+    if (MP.role === "off") return `<h2>How do you want to play?</h2>
+      <button class="btn-secondary wide" data-act="lb-host">${I("users")} Create a squad (up to 4)</button>
+      <div class="join-row"><input id="lb-code" maxlength="5" placeholder="CODE" autocomplete="off" aria-label="Squad code"><button class="btn-secondary" data-act="lb-join">Join</button></div>
+      <p class="vid-note" id="lb-msg">Squad play connects browsers directly through a free public relay. Only your call sign, suit colour and position are shared, and chat is 4 preset lines.</p>`;
+    if (MP.role === "host") return `<h2>Your squad code</h2><div class="code-big" id="lb-codebig">${MP.code}</div>
+      <button class="btn-secondary wide" data-act="lb-copy">Copy code</button>
+      <p class="vid-note">Friends open this page, press Start mission, then Join with this code. You pick the landing site and deploy for everyone.</p>
+      <button class="btn-secondary wide" data-act="lb-leave">Leave squad</button>`;
+    return `<h2>Squad ${MP.code}</h2><p class="vid-note">You're in! The host is choosing the landing site. When they deploy, your pod drops with the squad.</p>
+      <button class="btn-secondary wide" data-act="lb-leave">Leave squad</button>`;
+  }
+  function deployHtml() {
+    if (MP.role === "guest") return `<button class="btn-primary lg" disabled>Waiting for the host…</button>`;
+    return `<button class="btn-primary lg" data-go="dest">${MP.role === "host" ? "Choose landing site" : "Play solo"} ${I("arrow-right")}</button>`;
+  }
+  function lobby() {
+    lobbyOn = true; Sound.music("lobby");
+    render(`<section class="screen lobby">
+      <button class="btn-secondary sm back-btn" data-act="lb-back">Back</button>
+      <div class="lb-head"><span class="kicker">SQUAD LOBBY</span><h1>Ready your crew</h1></div>
+      <div class="lb-main"><div class="slots" id="slots">${slotsHtml()}</div><div class="lb-side" id="lb-side">${sideHtml()}</div></div>
+      <div class="next-row" id="lb-deploy">${deployHtml()}</div>
+      <button class="btn-secondary sm" data-act="suit" style="margin:.8rem auto 0;display:block">${I("user")} Change suit and call sign</button>
+    </section>`, { world: true, place: dest });
+  }
+  function lobbyRefresh() {
+    if (!lobbyOn || !$("#slots")) return;
+    $("#slots").innerHTML = slotsHtml(); $("#lb-side").innerHTML = sideHtml(); $("#lb-deploy").innerHTML = deployHtml();
+  }
+  function lobbyMsg(t) { const m = $("#lb-msg"); if (m) { m.textContent = t; m.classList.add("err"); } }
+  function syncRemotes() {
+    const keep = new Set();
+    if (inMission()) MP.roster.forEach(r => { if (r.id !== MP.id) { keep.add(r.id); World.remote.add(r.id, { name: r.name, suit: r.suit }); } });
+    World.remote.list().forEach(r => { if (!keep.has(r.id)) World.remote.remove(r.id); });
+    renderSquad();
+  }
+  function renderSquad() {
+    const el = $("#squad"); if (!el) return;
+    if (MP.role === "off" || !inMission()) { el.hidden = true; return; }
+    el.hidden = false;
+    const others = MP.roster.filter(r => r.id !== MP.id);
+    el.innerHTML = `<div class="sq-list">${others.map(r => `<span class="sq-p" style="--c:${hexc(r.suit)}"><i></i>${esc(r.name)}</span>`).join("") || "<span class='sq-p'>Waiting for teammates…</span>"}</div>
+      <div class="sq-chat">${QUICK.map((q, i) => `<button data-say="${i}" title="${q[1]} (press ${i + 1})">${q[0]}</button>`).join("")}</div>`;
+  }
+  function saySend(k) { MP.say(k); Sound.sfx("click"); }
+  MP.on("roster", () => { lobbyRefresh(); syncRemotes(); });
+  MP.on("state", ({ id, s }) => World.remote.update(id, s));
+  MP.on("say", ({ id, k }) => {
+    const q = QUICK[k]; if (!q) return; const r = MP.roster.find(x => x.id === id);
+    if (id !== MP.id) { World.remote.say(id, q[0] + " " + q[1]); Sound.sfx("pick"); if (r) toast(`<b>${esc(r.name)}</b>: ${q[0]} ${q[1]}`, 2500); }
+  });
+  MP.on("left", id => { World.remote.remove(id); toast("A teammate left the squad.", 2500); });
+  MP.on("closed", msg => { World.remote.clear(); lobbyRefresh(); toast(esc(msg), 4500); if (lobbyOn) lobby(); renderSquad(); });
+  MP.on("start", m => { const pl = D.places[m.dest]; if (!pl) return; dest = m.dest; site = pl.sites[m.site] || pl.sites[0]; closeModal(); startMission({ storms: m.storms }); });
+  document.addEventListener("keydown", e => {
+    if (MP.role === "off" || !inMission() || S.modalOpen || (e.target && /INPUT|TEXTAREA/.test(e.target.tagName))) return;
+    const k = "1234".indexOf(e.key); if (k >= 0) saySend(k);
+  });
   function destination() {
-    Sound.music("explore");
+    lobbyOn = false;
+    Sound.music("lobby");
     const card = id => {
       const p = D.places[id];
       return `<button class="dest-card ${dest === id ? "sel" : ""}" data-dest="${id}" aria-pressed="${dest === id}">
@@ -313,7 +388,7 @@
     if (S && S.intro) ["t1", "t2", "t3", "t4"].forEach(k => clearTimeout(S[k]));
     clearInterval(cineRun); cineRun = null;
     $("#cine").hidden = true; World.setCine(null); S = null;
-    destination();
+    lobby();
   }
   function skipStory() { Sound.stopVoice(); endStory(); }
 
@@ -330,13 +405,15 @@
     return [3, 6];
   }
 
-  function startMission() {
+  function startMission(opts) {
+    lobbyOn = false;
     if (S) S.over = true;
     closeModal(); $("#popup").hidden = true; $("#cine").hidden = true;
     if (!site) site = D.places[dest].sites[0];
     const place = D.places[dest], mods = site.mods || {};
-    const storms = {}, picked = Donki.pickStorms(C.STORMS_PER_MISSION);
-    pickStormDays(picked.length).forEach((d, i) => (storms[d] = picked[i]));
+    let storms = {};
+    if (opts && opts.storms) storms = opts.storms;
+    else { const picked = Donki.pickStorms(C.STORMS_PER_MISSION); pickStormDays(picked.length).forEach((d, i) => (storms[d] = picked[i])); }
     S = {
       placeId: dest, place, site, mods, day: 1, t: 0,
       life: 80, power: 80, shield: 75, food: 70, growth: 0.45,
@@ -354,8 +431,53 @@
     app.hidden = true; gameEl.hidden = false; document.body.classList.add("playing"); document.body.classList.remove("cine", "menu", "dim");
     World.reset(dest, site); World.setCine(null); World.resize();
     buildHud();
-    Sound.music("explore");
-    startDay();
+    if (MP.role === "host" && !(opts && opts.storms)) MP.start({ dest, site: D.places[dest].sites.indexOf(site), storms });
+    syncRemotes();
+    Sound.music("drop");
+    beginDrop();
+    last = performance.now();
+  }
+  /* ---------- the drop: your pod falls from orbit, BGMI-style ---------- */
+  const DROP_WAIT = 2.4, DROP_FALL = 5.0, DROP_END = 8.9;
+  function beginDrop() {
+    S.drop = { t: 0, landed: false, hatch: false, prevH: 60 };
+    hud.style.visibility = "hidden"; $("#g-ticker").hidden = true;
+    const el = document.createElement("div"); el.id = "drop"; el.className = "drop-hud";
+    el.innerHTML = `<div class="dr-top"><small>DEPLOYING TO</small><b>${esc(S.site.name)}</b><em>${S.placeId === "moon" ? "THE MOON" : "MARS"} · ${esc(profile.name)}</em></div>
+      <div class="dr-count" id="dr-count"></div>
+      <div class="dr-alt"><div><small>ALTITUDE</small><b id="dr-alt">12,000 m</b></div><div><small>SPEED</small><b id="dr-spd">0 m/s</b></div></div>
+      <div class="dr-flash" id="dr-flash"></div><button class="dr-skip" data-act="drop-skip">Skip ▸</button>`;
+    gameEl.appendChild(el);
+    const P = World.player; World.setPod(true, P.x, P.y, 60, false);
+    World.setCine({ pos: { x: P.x + 300, y: P.y + 420, h: 62 }, look: { x: P.x, y: P.y, h: 60 }, fov: 55, speed: 8, jump: true });
+  }
+  function dropTick(dt) {
+    const d = S.drop, P = World.player; d.t += dt;
+    const s = clamp((d.t - DROP_WAIT) / DROP_FALL, 0, 1), h = s < 1 ? 60 * Math.pow(1 - s, 2.2) : 0;
+    const cnt = $("#dr-count");
+    if (d.t < DROP_WAIT) cnt.textContent = d.t < 0.4 ? "" : String(Math.max(1, Math.ceil(DROP_WAIT - d.t - 0.2)));
+    else if (!d.landed) cnt.textContent = d.t < DROP_WAIT + 0.7 ? "DROP!" : "";
+    if (d.t >= DROP_WAIT && !d.dropped) { d.dropped = true; Sound.sfx("engine"); }
+    const spd = Math.max(0, (d.prevH - h) / Math.max(dt, 0.001) * 100 * 0.2); d.prevH = h;
+    $("#dr-alt").textContent = Math.round(h / 60 * 12000 / 10) * 10 + " m"; $("#dr-spd").textContent = Math.round(spd) + " m/s";
+    if (!d.hatch) World.setPod(true, P.x, P.y, h, s > 0 && s < 1);
+    const sh = s > 0.88 && s < 1 ? (Math.random() - 0.5) * 0.12 : 0;
+    World.setCine({ pos: { x: P.x + 300 + sh * 300, y: P.y + 420, h: h + (s > 0.8 ? 1.4 : 2.6) + sh }, look: { x: P.x, y: P.y, h: h + 0.6 }, fov: 55, speed: 8 });
+    if (s >= 1 && !d.landed) {
+      d.landed = true; d.tl = d.t; cnt.textContent = "TOUCHDOWN"; Sound.sfx("land");
+      for (let i = 0; i < 26; i++) { const a = (i / 26) * 6.28; World.burst("dust", P.x + Math.cos(a) * 90, P.y + Math.sin(a) * 90, 2); }
+      const f = $("#dr-flash"); f.classList.add("on");
+    }
+    if (d.landed && d.t > d.tl + 1.1 && !d.hatch) { d.hatch = true; cnt.textContent = ""; World.burst("spark", P.x, P.y, 14); }
+    if (d.hatch) { const k = clamp((d.t - d.tl - 1.1) / 0.5, 0, 1); World.podShrink(k); if (k >= 1) World.setPod(false); }
+    if (d.t > d.tl + 1.9 && d.landed) endDrop();
+  }
+  function endDrop() {
+    if (!S || !S.drop) return;
+    S.drop = null; const el = $("#drop"); if (el) el.remove();
+    World.setPod(false); World.podShrink(0); World.setCine(null);
+    hud.style.visibility = "";
+    Sound.music("explore"); startDay(); toast(`Touchdown at ${esc(S.site.name)}! Your ${S.place.dayWord} 1 begins.`, 4500);
     last = performance.now();
   }
   function stopGame() {
@@ -448,6 +570,7 @@
   const solarNow = () => S.place.solar * (S.mods.solar || 1) * (1 - 0.7 * (S.dust.reduce((a, b) => a + b, 0) / S.dust.length)) * S.solarMul * S.solarForever;
 
   function update(dt) {
+    if (S.drop) return dropTick(dt);
     if (S.intro) { S.storm = S.introStorm ? { phase: "hit" } : null; return; }
     const simulate = !S.modalOpen || (S.ask && S.ask.live);
     if (S.ask) {
@@ -504,6 +627,7 @@
     if (S.t >= DAY_LEN && !S.storm && !S.pending && !S.modalOpen && (!S.storms[S.day] || S.stormStarted)) endDay();
   }
 
+  document.addEventListener("click", e => { const b = e.target.closest && e.target.closest("[data-say]"); if (b) saySend(+b.dataset.say); });
   function loop(ts) {
     const dt = Math.min(0.05, (ts - last) / 1000 || 0);
     last = ts;
@@ -511,12 +635,14 @@
       attractT += dt;
       attractCine.yaw = attractT * 0.045; attractCam.x = 1800; attractCam.y = 1300;
     }
+    mpT += dt;
+    if (MP.role !== "off" && mpT > 0.1 && inMission() && !S.over && World.player) { mpT = 0; const ls = World.localState(); if (ls) MP.sendState(ls); }
     if (S && !S.over && !gameEl.hidden) {
       update(dt);
       if (S && !S.modalOpen) World.step(dt);
       if (S) World.draw();
       hudT += dt;
-      if (hudT > 0.1 && S && !S.intro && !S.over) { hudT = 0; updateHud(); }
+      if (hudT > 0.1 && S && !S.intro && !S.over && !S.drop) { hudT = 0; updateHud(); }
     }
     requestAnimationFrame(loop);
   }
@@ -784,7 +910,7 @@
     const ledger = led ? `<h2>Gained and lost</h2><table class="ledger"><tr><th></th><th class="g">Gained</th><th class="l">Lost</th><th>Net</th></tr>${TK.map(k => { const g = Math.round(led[k][0]), l = Math.round(led[k][1]), n = g - l; return `<tr><td>${TKN[k]}</td><td class="g">+${g}</td><td class="l">−${l}</td><td class="${n >= 0 ? "g" : "l"}">${n >= 0 ? "+" : "−"}${Math.abs(n)}</td></tr>`; }).join("")}</table>` : "";
     render(`<section class="screen results">
       <h1>${success ? "Mission success!" : "Mission over"}</h1>
-      <p class="muted" style="text-align:center">${success ? `${esc(S.site.name)} outpost survived ${DAYS} ${S.place.dayWord}s.` : `${esc(S.failReason)} The crew flew home safely — try a new plan!`}</p>
+      <p class="muted" style="text-align:center">${success ? `${esc(S.site.name)} outpost survived ${DAYS} ${S.place.dayWord}s.` : "The crew flew home safely. Try a new plan!"}</p>
       ${!success && lostKey ? `<div class="why-lost"><b>Why you lost:</b> ${esc(S.failReason)}<br><span>${TIP[lostKey]}</span></div>` : ""}
       <div class="stars" aria-label="${stars} of 3 stars">${[0, 1, 2].map(i => `<span class="${i < stars ? "on" : "off"}">★</span>`).join("")}</div>
       <div class="xp-gain">+${xpGain} XP · Level ${Math.floor(profile.xp / 100) + 1}</div>
@@ -817,6 +943,7 @@
     hud.innerHTML = `
       <div class="dmg-flash" id="dmg-flash"></div>
       <div class="coach" id="coach" hidden></div>
+      <div class="squad" id="squad" hidden></div>
       <div class="h-tasks" id="h-tasks"></div>
       <div class="h-clock"><div class="h-medal" id="h-medal"><div class="h-sol" id="h-sol"></div></div><div class="h-sci" id="h-sci"></div><div class="h-fc" id="h-fc"></div></div>
       <div class="h-topright"><button class="hbtn" id="g-menu" aria-label="Menu">${I("menu")}</button></div>
@@ -950,11 +1077,15 @@
     if (S) { S.modalOpen = true; }
     mbox.innerHTML = `<div class="pause"><h2>Settings</h2>
       ${row("Sound and music", "tog-sound", !Sound.muted, Sound.muted ? "off" : "on")}
+      <div class="set-row vol"><label for="vol-m">Music</label><input type="range" id="vol-m" min="0" max="100" value="${Math.round(Sound.musicVol * 100)}"></div>
+      <div class="set-row vol"><label for="vol-s">Sound effects</label><input type="range" id="vol-s" min="0" max="100" value="${Math.round(Sound.sfxVol * 100)}"></div>
       ${row("Larger text", "tog-text", big, big ? "on" : "off")}
       ${row("High quality graphics", "tog-gfx", profile.q === "high", profile.q)}
+      <p class="vid-note">Music: original tracks made with ElevenLabs. Models: Kenney and Quaternius (CC0).</p>
       <button class="btn-secondary sm" data-act="reset-progress">Reset saved progress</button>
       <button class="btn-primary" data-act="${S && !S.over && !S.attract && !S.intro ? "resume" : "close-sw"}">Done</button></div>`;
   }
+  document.addEventListener("input", e => { if (e.target.id === "vol-m") Sound.setMusicVol(e.target.value / 100); else if (e.target.id === "vol-s") { Sound.setSfxVol(e.target.value / 100); Sound.sfx("gain"); } });
   const SUITS = [["Orange", 0xff6b35], ["Blue", 0x4c8dff], ["Green", 0x2ecc71], ["Pink", 0xff6bd5], ["Purple", 0xa070ff], ["Gold", 0xffc94a], ["Red", 0xe0453a], ["Teal", 0x1ed6c4]];
   function suitModal() {
     const hex = c => "#" + c.toString(16).padStart(6, "0");
@@ -965,7 +1096,7 @@
       <button class="btn-primary" data-act="suit-save">Save</button></div>`);
     mbox.querySelectorAll(".sw").forEach(b => b.addEventListener("click", () => { profile.suit = +b.dataset.suit; World.setSuit(profile.suit); mbox.querySelectorAll(".sw").forEach(x => x.classList.toggle("on", x === b)); }));
   }
-  function suitSave() { const v = ($("#suit-name") || {}).value || ""; profile.name = v.trim().slice(0, 14) || "Commander"; saveProfile(); closeModal(); if (!S || S.attract) home(); }
+  function suitSave() { const v = ($("#suit-name") || {}).value || ""; profile.name = v.trim().slice(0, 14) || "Commander"; saveProfile(); closeModal(); if (MP.role !== "off") MP.setSuit(profile.suit); if (lobbyOn) lobby(); else if (!S || S.attract) home(); }
   /* ---------- coach: sensible step-by-step hints in the first mission ---------- */
   const COACH = [
     { t: "Move with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> (or drag the joystick on a phone). Walk a few steps!", ok: c => Math.hypot(World.player.x - c.x0, World.player.y - c.y0) > 160 },
@@ -1024,7 +1155,7 @@
     if (t.dataset.opt !== undefined && S && S.pending) { S.pending.sel = +t.dataset.opt; Sound.sfx("click"); return showChoices(); }
     const go = {
       home, dest: destination, howto: () => briefing("howto"), video: videoModal, sources, sunwatch: sunWatchModal,
-      start: () => (introSeen ? destination() : story()), story,
+      start: () => (introSeen ? lobby() : story()), lobby, story,
       globe: () => globe(0),
       land: async () => { Sound.sfx("engine"); t.disabled = true; await Promise.race([Globe.landAnim(), wait(2500)]); briefing("start"); }
     }[t.dataset.go];
@@ -1041,6 +1172,12 @@
       case "reopen": if (S && S.pending) { openModal(""); showChoices(); } else if (S) toast(S.linkDay >= S.day ? "Earth link is strong today." : "The radio is quiet. Check in at the Radio Dish for early storm warnings."); return;
       case "next-day": return nextDay();
       case "vidclose": closeModal(); Sound.music("explore"); return;
+      case "lb-back": if (MP.role !== "off") MP.leave(); lobbyOn = false; return home();
+      case "lb-host": MP.host(myInfo(), (err) => { if (err) return lobbyMsg(err); lobbyRefresh(); }); { const m = $("#lb-msg"); if (m) m.textContent = "Opening your squad…"; } return;
+      case "lb-join": { const c = ($("#lb-code") || {}).value || ""; if (c.trim().length < 4) return lobbyMsg("Type the 5-letter squad code."); const m = $("#lb-msg"); if (m) { m.textContent = "Joining…"; m.classList.remove("err"); } return MP.join(c, myInfo(), err => { if (err) return lobbyMsg(err); lobbyRefresh(); }); }
+      case "lb-copy": try { navigator.clipboard.writeText(MP.code); } catch (e) {} { const b = $("#lb-codebig"); if (b) b.classList.add("copied"); } return;
+      case "lb-leave": MP.leave(); World.remote.clear(); return lobby();
+      case "drop-skip": if (S && S.drop) { World.podShrink(0); endDrop(); } return;
       case "suit": return suitModal();
       case "suit-save": return suitSave();
       case "coach-skip": profile.tutorDone = true; saveProfile(); { const e = $("#coach"); if (e) e.hidden = true; } return;
@@ -1098,7 +1235,7 @@
     rover: inRover => { Sound.sfx(inRover ? "engine" : "door"); if (inRover && S.stats) S.stats.driven++; }
   });
   soundBtn(); World.setQuality(profile.q); World.setSuit(profile.suit);
-  window.__lo = { get S() { return S; }, update, startMission, endDay, story, setDest: (d, i = 0) => { dest = d; site = D.places[d].sites[i]; } };
+  window.__lo = { get S() { return S; }, lobby: () => lobby(), update, skipDrop: () => { if (S && S.drop) endDrop(); }, startMission, endDay, story, setDest: (d, i = 0) => { dest = d; site = D.places[d].sites[i]; } };
   requestAnimationFrame(loop);
   loading();
 })();

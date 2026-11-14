@@ -20,7 +20,9 @@ You control an astronaut in a **third-person 3D world**: a black Moon sky with s
 |---|---|---|
 | Move | W A S D / arrow keys (relative to the camera) | Click/tap the ground (it finds a path around buildings) · on phones drag the left half |
 | Look around | Drag with the mouse · Q / R · mouse wheel zooms | Drag the right half of the screen |
-| Use / drive / exit rover | E or Space | Big orange USE button |
+| Use / drive / exit rover | E or Enter | Big orange USE button |
+| Jump (real Moon / Mars gravity) | Space | JUMP button |
+| Quick chat in a squad | 1 2 3 4 | Emoji buttons |
 | Pick which task the arrow points to | — | Tap a task in the list |
 
 Keep **Life Support**, **Power** and **Shielding** above zero for 8 sols (90 seconds each).
@@ -83,3 +85,15 @@ Made by Team Pheonix with AI-assisted coding. Every team member should read, tes
 ## Tutorial video
 
 `assets/video/how-to-play.mp4` (1 min 07 s, 1280x720) is a narrated how-to-play video. Its footage is rendered by the game's own 3D engine; the callouts are drawn on top, and the voice-over is ElevenLabs (Atlas). It opens from the title menu: **Watch tutorial**.
+
+## New in this version
+
+- **Jump** with the real gravity of the place (Moon 1/6 g, Mars 0.38 g): small rocks can be hopped over.
+- **Gains and losses** are always visible: floating +/- numbers, rising/falling arrows on the meters, a red flash on damage, a "Gained and lost" ledger at the end and a "Why you lost" tip.
+- **Mission spots** (Weather Station, Ice Drill, Relay Tower, Old Lander) have light beacons, a discovery card that shows reward and cost, and real logic: the Weather Station turns real DONKI data into a **storm forecast** (+8 s warning), the Ice Drill costs power, the Relay gives early warnings.
+- **Coach tips** walk a new player through move, look, jump, use and the meters (skippable).
+- **My astronaut**: pick a suit colour and call sign (saved).
+- **Squad lobby and multiplayer** (up to 4): create a squad, share the 5-letter code, see each other, 4 preset chat lines, same storm schedule. Uses PeerJS (MIT) and its free public relay; only call sign, colour and position are shared.
+- **BGMI-style start**: lobby, countdown and a drop-pod descent with an altitude read-out, then touchdown.
+- **New ElevenLabs music**: lobby, exploration, storm and drop tracks, with separate music / effects volume sliders.
+- A small **watermark** (Lunar Outpost · Team Pheonix) on every screen.

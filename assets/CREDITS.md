@@ -20,3 +20,6 @@
 
 ## Fonts
 - Orbitron and Rajdhani (Google Fonts, SIL Open Font License).
+
+- PeerJS 1.5.4 (MIT) for squad play: https://peerjs.com
+- Music tracks (lobby, explore, storm, drop): generated with ElevenLabs music v2.5 by Team Pheonix.
