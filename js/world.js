@@ -560,7 +560,9 @@ window.World = (() => {
       if (inView) { guideEl.className = "w-guide over"; guideEl.style.transform = `translate(${s.x}px, ${s.y - 20 + Math.sin(t * 5) * 6}px) translate(-50%, -100%)`; if (guideEl._h !== "") { guideEl.innerHTML = ""; guideEl._h = ""; } }
       else {
         const cx = vw / 2, cy = vh / 2, a = Math.atan2(s.y - cy, s.x - cx);
-        const ex = Math.max(m, Math.min(vw - m, cx + Math.cos(a) * vw)), ey = Math.max(vw < 700 ? 270 : m + 150, Math.min(vh - m - 140, cy + Math.sin(a) * vh));
+        const ex = Math.max(m, Math.min(vw - m, cx + Math.cos(a) * vw)), tp = document.querySelector(".h-tasks"), top = tp ? tp.getBoundingClientRect().bottom - host.getBoundingClientRect().top + 44 : m + 150,
+          mt = document.querySelector(".h-meters"), bot = mt ? mt.getBoundingClientRect().top - host.getBoundingClientRect().top - 44 : vh - m - 140,
+          ey = Math.max(top, Math.min(bot, cy + Math.sin(a) * vh));
         guideEl.className = "w-guide edge"; guideEl.style.transform = `translate(${ex}px, ${ey}px) translate(-50%, -50%)`;
         const html = `<b style="transform:rotate(${a.toFixed(2)}rad)">➤</b><small>${Math.round(Math.hypot(g.x - P.x, g.y - P.y) / 10)} m</small>`;
         if (guideEl._h !== html) { guideEl.innerHTML = html; guideEl._h = html; }
