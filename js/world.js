@@ -48,7 +48,8 @@ window.World = (() => {
   const occRay = new THREE.Raycaster();
   const texCache = {};
   let vw = 800, vh = 600, parts = [];
-  const keys = { up: false, down: false, left: false, right: false, act: false, camL: false, camR: false };
+  let jumpLatch = false, beacons = [], suit = 0xff6b35;
+  const keys = { up: false, down: false, left: false, right: false, act: false, jump: false, camL: false, camR: false };
   const joy = { on: false, x: 0, y: 0, ox: 0, oy: 0, id: null };
   const v3 = (x, y, h = 0) => new THREE.Vector3(x * K, h, y * K);
 
@@ -193,6 +194,16 @@ window.World = (() => {
     const rk = new THREE.Group();
     [["rocket_finsA", 150, 0], ["rocket_baseA", 140, 0.32], ["rocket_fuelA", 80, 1.55], ["rocket_topA", 80, 1.95]].forEach(([n, s, h]) => { const m = model(n, s); m.position.y = h; rk.add(m); });
     rk.rotation.z = 0.12; put(rk, 440, 2240); solidCircle(440, 2240, 80);
+    // light beacons over the four remote mission spots, so you can spot them from far away
+    beacons = [];
+    [["weather", 0x4cc0ff], ["ice", 0x9fe3ff], ["relay", 0xffc94a], ["lander", 0xb07cff]].forEach(([id, col]) => {
+      const o = objects.find(q => q.id === id), g = new THREE.Group();
+      const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.5, 16, 24, 1, true), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+      beam.position.y = 8;
+      const ring = new THREE.Mesh(new THREE.RingGeometry(1.1, 1.3, 48), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+      ring.rotation.x = -Math.PI / 2; ring.position.y = 0.04;
+      g.add(beam, ring); g.position.copy(v3(o.x, o.y, 0)); groupWorld.add(g); beacons.push({ id, g, beam, ring });
+    });
     // rocks, boulders and craters (away from the base, outposts and roads)
     const clear = [{ x: 1800, y: 1350, r: 760 }, ...objects.filter(o => o.far || o.kind === "dish" || o.kind === "pad").map(o => ({ x: o.x, y: o.y, r: 260 }))];
     const ok = (x, y, rad) => x > 80 && y > 80 && x < W - 80 && y < H - 80 && clear.every(c => Math.hypot(c.x - x, c.y - y) > c.r + rad);
@@ -201,12 +212,12 @@ window.World = (() => {
     for (let k = 0; k < 24; k++) { const x = r() * W, y = r() * H, rad = 70 + r() * 80; if (ok(x, y, rad + 60)) { const m = put(model(kinds[1 + (k % 2)], rad * 2.3, { tint: rockTint(), rot: r() * 6 }), x, y); scatter.push({ m, x, y }); rocks.push({ x, y, r: rad, big: true }); } }
     for (let k = 0; k < 60; k++) { const x = r() * W, y = r() * H; if (ok(x, y, 30)) noShadow(put(model("rocks_smallA", 60 + r() * 60, { tint: rockTint(), rot: r() * 6 }), x, y)); }
     for (let k = 0; k < 18; k++) { const x = r() * W, y = r() * H, s = 160 + r() * 260; if (ok(x, y, 0)) noShadow(put(model(k % 2 ? "crater" : "craterLarge", s, { tint: rockTint(), rot: r() * 6 }), x, y, -0.01)); }
-    rocks.forEach(k => solids.push({ x: k.x, y: k.y, r: k.r * 0.85 }));
+    rocks.forEach(k => solids.push({ x: k.x, y: k.y, r: k.r * 0.85, low: k.r < 30 }));
     buildNav();
 
     samplesGroup = new THREE.Group(); groupWorld.add(samplesGroup);
     partGroup = new THREE.Group(); groupWorld.add(partGroup);
-    playerRig = rig(0xff6b35); groupWorld.add(playerRig.obj);
+    playerRig = rig(suit); groupWorld.add(playerRig.obj);
     ringMesh = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.26, 40), new THREE.MeshBasicMaterial({ color: 0xffd54a, transparent: true, opacity: 0.85 }));
     ringMesh.rotation.x = -Math.PI / 2; groupWorld.add(ringMesh);
     crew = [[1650, 1520, 0x4c8dff], [1960, 1530, 0x2ecc71], [1650, 1280, 0xff6bd5]].map(([x, y, c]) => {
@@ -214,7 +225,7 @@ window.World = (() => {
       return { rig: rg, x, y, face: 0, tx: null, ty: null, wait: Math.random() * 3, home: { x, y }, stuck: 0 };
     });
     roverMesh = model("rover", 150); groupWorld.add(roverMesh);
-    P = { x: 1800, y: 1480, face: 0, moving: false, target: null, inRover: false };
+    P = { x: 1800, y: 1480, z: 0, vz: 0, face: 0, moving: false, target: null, inRover: false };
     rover = { x: 2380, y: 1640, a: -Math.PI / 2, battery: 100, speed: 0 };
     holdProg = 0; holdId = null; cine = null; focusV = null;
   }
@@ -332,7 +343,7 @@ window.World = (() => {
 
   /* ---------------- input ---------------- */
   function bindInput() {
-    const map = { ArrowUp: "up", w: "up", W: "up", ArrowDown: "down", s: "down", S: "down", ArrowLeft: "left", a: "left", A: "left", ArrowRight: "right", d: "right", D: "right", e: "act", E: "act", " ": "act", Enter: "act", q: "camL", Q: "camL", r: "camR", R: "camR" };
+    const map = { ArrowUp: "up", w: "up", W: "up", ArrowDown: "down", s: "down", S: "down", ArrowLeft: "left", a: "left", A: "left", ArrowRight: "right", d: "right", D: "right", e: "act", E: "act", " ": "jump", Enter: "act", q: "camL", Q: "camL", r: "camR", R: "camR" };
     window.addEventListener("keydown", e => {
       const k = map[e.key]; if (!k || !running()) return;
       if (e.target && e.target.closest && e.target.closest("button") && (e.key === " " || e.key === "Enter")) return;
@@ -391,7 +402,7 @@ window.World = (() => {
     if (x < rad || y < rad || x > W - rad || y > H - rad) return true;
     for (const s of solids) {
       if (s.box) { if (x + rad > s.x && x - rad < s.x + s.w && y + rad > s.y && y - rad < s.y + s.h) return true; }
-      else if (Math.hypot(s.x - x, s.y - y) < s.r + rad) return true;
+      else if (Math.hypot(s.x - x, s.y - y) < s.r + rad) { if (s.low && self === undefined && P && P.z > 0.45) continue; return true; }
     }
     if (self !== "rover" && P && !P.inRover && rover && Math.hypot(rover.x - x, rover.y - y) < 40 + rad) return true;
     return false;
@@ -527,6 +538,17 @@ window.World = (() => {
         if (P.moving && where() === "outside" && Math.random() < dt * 5) puff(P.x, P.y + 6, 0.25);
       } else P.moving = false;
     }
+    // jumping: gravity is the real Moon / Mars value (scaled so a hop lasts a second or two)
+    const gJ = place === "mars" ? 9.2 : 4.0;
+    if (!cine && !P.inRover && keys.jump && P.z <= 0 && !jumpLatch) {
+      P.vz = 3.2; P.z = 0.001; jumpLatch = true; for (let i = 0; i < 6; i++) puff(P.x + (Math.random() - 0.5) * 30, P.y + (Math.random() - 0.5) * 30, 0.35, undefined, 0.8, 0.5);
+      handlers.jump && handlers.jump("up");
+    }
+    if (!keys.jump) jumpLatch = false;
+    if (P.z > 0 || P.vz > 0) {
+      P.vz -= gJ * dt; P.z += P.vz * dt;
+      if (P.z <= 0) { P.z = 0; P.vz = 0; for (let i = 0; i < 9; i++) puff(P.x + (Math.random() - 0.5) * 40, P.y + (Math.random() - 0.5) * 40, 0.4, undefined, 0.9, 0.6); handlers.jump && handlers.jump("land"); }
+    }
     if (rover.auto && !P.inRover) {
       const dx = rover.auto.x - rover.x, dy = rover.auto.y - rover.y, d = Math.hypot(dx, dy);
       if (d < 12) { rover.auto = null; rover.speed = 0; }
@@ -566,6 +588,9 @@ window.World = (() => {
     if (v.leakAt && Math.random() < dt * 8) { const lo = objects.find(x => x.id === v.leakAt); if (lo) puff(lo.x + (Math.random() - 0.5) * 60, lo.y + 60, 0.4, 0xdff0ff, 1); }
     if (v.storm && Math.random() < dt * 40) { const c = camFocus(); puff(c.x + (Math.random() - 0.5) * 1200, c.y + (Math.random() - 0.5) * 900, 0.3, 0xffb050, 0.6, 3); }
     if (v.sending && Math.random() < dt * 5) puff(2440, 1120, 0.35, 0xffd54a, 1, 2.2);
+    if (v.relayBroken && Math.random() < dt * 3) puff(3150, 2230, 0.3, 0xff5a3a, 0.8, 1.6);
+    if (!v.partTaken && Math.random() < dt * 2) puff(440 + (Math.random() - 0.5) * 40, 2240, 0.5, 0x8a8fa8, 1.6, 1.0);
+    if (Math.random() < dt * 2.5) puff(3240 + (Math.random() - 0.5) * 120, 1000 + (Math.random() - 0.5) * 120, 0.18, 0xbfe8ff, 1.1, 1.3);
     updateParts(dt);
   }
   function tap(o) {
@@ -623,7 +648,7 @@ window.World = (() => {
       camera.fov += ((cine.fov || 40) - camera.fov) * k; camera.updateProjectionMatrix();
       lightAt(heroLook, 10, v);
     } else {
-      const f = camFocus(), wantF = v3(f.x, f.y, fh);
+      const f = camFocus(), wantF = v3(f.x, f.y, fh + (f === P ? (P.z || 0) * 0.55 : 0));
       if (!focusV) focusV = wantF.clone();
       focusV.lerp(wantF, Math.min(1, dt * (cine ? (cine.speed || 1.2) : 10)));
       const cp = Math.cos(cP);
@@ -676,9 +701,9 @@ window.World = (() => {
     if (!renderer || !P) return;
     const dt = Math.min(0.05, clock.getDelta());
     const v = handlers.view();
-    placeRig(playerRig, P.x, P.y, P.face, heroMode ? ((t % 14) < 2.6 && t > 3 ? "Wave" : "Idle") : holdId ? "Interact" : P.moving ? "Run" : "Idle", dt);
+    placeRig(playerRig, P.x, P.y, P.face, heroMode ? ((t % 14) < 2.6 && t > 3 ? "Wave" : "Idle") : P.z > 0.05 ? "Wave" : holdId ? "Interact" : P.moving ? "Run" : "Idle", dt, P.z || 0);
     playerRig.obj.visible = !P.inRover && where() !== "shelter";
-    ringMesh.visible = playerRig.obj.visible && !cine; ringMesh.position.copy(v3(P.x, P.y, 0.02)); ringMesh.scale.setScalar(1 + Math.sin(t * 4) * 0.06);
+    ringMesh.visible = playerRig.obj.visible && !cine; ringMesh.position.copy(v3(P.x, P.y, 0.02)); ringMesh.scale.setScalar((1 + Math.sin(t * 4) * 0.06) / (1 + (P.z || 0) * 0.8));
     crew.forEach(c => placeRig(c.rig, c.x, c.y, c.face, c.moving ? "Walk" : c.act && (c.actT -= dt) > 0 ? c.act : "Idle", dt));
     roverMesh.position.copy(v3(rover.x, rover.y, rover.speed > 5 ? Math.abs(Math.sin(t * 18)) * 0.012 : 0));
     roverMesh.rotation.y = -rover.a + Math.PI / 2;
@@ -688,10 +713,14 @@ window.World = (() => {
     panelMeshes.forEach((m, i) => { const d = (v.dust || [])[i] || 0; m.traverse(o => { if (o.isMesh && o.userData.base) o.material.color.copy(o.userData.base).lerp(dustCol, d * 0.85); }); });
     updateCamera(dt, v);
     renderer.render(scene, camera);
+    beacons.forEach(b => {
+      const o = objects.find(q => q.id === b.id), near = Math.hypot(o.x - P.x, o.y - P.y) < 220, tgt = v.guide && v.guide.id === b.id;
+      b.g.visible = !near && !cine; b.beam.material.opacity = tgt ? 0.34 + Math.sin(t * 4) * 0.08 : 0.13; b.ring.scale.setScalar(1 + (tgt ? Math.sin(t * 4) * 0.08 : 0)); b.ring.material.opacity = tgt ? 0.8 : 0.35;
+    });
     overlays(v);
   }
-  function placeRig(r, x, y, face, anim, dt) {
-    r.obj.position.copy(v3(x, y, 0));
+  function placeRig(r, x, y, face, anim, dt, z = 0) {
+    r.obj.position.copy(v3(x, y, 0)); r.obj.position.y += z;
     let d = face - r.obj.rotation.y; d = ((d + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
     r.obj.rotation.y += d * Math.min(1, dt * 10);
     if (anim) play(r, anim);
@@ -802,6 +831,8 @@ window.World = (() => {
   return {
     snapshot, hero, HERO, texturesReady,
     setQuality(q) { if (!renderer) return; sun.castShadow = q === "high"; renderer.setPixelRatio(q === "high" ? Math.min(2, window.devicePixelRatio || 1) : 1); resize(); },
+    setSuit(c) { suit = c; if (playerRig && groupWorld) { const o = playerRig.obj, pos = o.position.clone(), ry = o.rotation.y, sc = o.scale.x, vis = o.visible; groupWorld.remove(o); playerRig = rig(c); playerRig.obj.position.copy(pos); playerRig.obj.rotation.y = ry; playerRig.obj.scale.setScalar(sc); playerRig.obj.visible = vis; groupWorld.add(playerRig.obj); } },
+    get yaw() { return camYaw; },
     preload, init, reset, step, draw, resize, keys, burst, where, nearest, current,
     get camera() { return camera; }, get player() { return P; }, get rover() { return rover; }, get objects() { return objects; },
     obj: id => objects.find(o => o.id === id),

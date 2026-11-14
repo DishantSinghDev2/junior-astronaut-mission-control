@@ -32,7 +32,7 @@
   const shots = {};
   // saved progress (this browser only)
   const PROFILE_KEY = "lo-profile-v1";
-  const profile = { xp: 0, stars: 0, missions: 0, science: 0, lastSite: null, q: "high" };
+  const profile = { xp: 0, stars: 0, missions: 0, science: 0, lastSite: null, q: "high", suit: 0xff6b35, name: "Commander", tutorDone: false };
   try { Object.assign(profile, JSON.parse(localStorage.getItem(PROFILE_KEY) || "{}")); } catch (e) {}
   const saveProfile = () => { try { localStorage.setItem(PROFILE_KEY, JSON.stringify(profile)); } catch (e) {} };
   let S = null, dest = "moon", site = null, last = 0, hudT = 0, toastTimer = null, introSeen = false, cineRun = null;
@@ -115,13 +115,14 @@
       </div>
       <div class="t-left">
         <div class="t-card"><div class="t-avatar">${I("user")}</div>
-          <div><b>Commander</b><small>Level ${lvl}</small><div class="xp"><i style="width:${xp}%"></i></div><div class="xp-t">${xp} / 100 XP</div></div></div>
+          <div><b>${esc(profile.name)}</b><small>Level ${lvl}</small><div class="xp"><i style="width:${xp}%"></i></div><div class="xp-t">${xp} / 100 XP</div></div></div>
         <nav class="t-menu" aria-label="Main menu">
           <button class="t-item primary" data-go="start">${I("play")} Start mission</button>
           <button class="t-item" data-go="sunwatch">${I("sun")} Sun Watch</button>
           <button class="t-item" data-go="howto">${I("book-open")} How to play</button>
           <button class="t-item" data-go="video">${I("sparkles")} Watch tutorial</button>
           <button class="t-item" data-go="sources">${I("satellite")} NASA data</button>
+          <button class="t-item" data-act="suit">${I("user")} My astronaut</button>
           <button class="t-item" data-act="settings">${I("settings")} Settings</button>
         </nav>
         <div class="t-suit"><h3>Suit status</h3>
@@ -201,7 +202,7 @@
         </ul><p class="goal">Keep all four above zero.</p>` },
       { title: "How to play", body: `<ul>
           <li><span class="dot" style="background:#7cc4ff">${I("map-pin")}</span><div><b>Move and look</b><span><span class="key">W A S D</span> walk relative to the camera · drag to look around · <span class="key">Q</span> <span class="key">R</span> turn · click the ground to walk there · on a phone, drag the left side to move</span></div></li>
-          <li><span class="dot" style="background:#ffd54a">${I("hand")}</span><div><b>Use things</b><span><span class="key">E</span> or <span class="key">Space</span> — or the big orange USE button. Some jobs need you to hold it.</span></div></li>
+          <li><span class="dot" style="background:#ffd54a">${I("hand")}</span><div><b>Use things</b><span><span class="key">E</span> or <span class="key">Enter</span> — or the big orange USE button. <span class="key">Space</span> jumps! Some jobs need you to hold it.</span></div></li>
           <li><span class="dot" style="background:#ff6b35">${I("car-front")}</span><div><b>Drive the rover</b><span>Walk to the rover and press USE. It needs charging at the yellow pad.</span></div></li>
         </ul>` }
     ];
@@ -346,7 +347,7 @@
       solarMul: 1, solarForever: 1, wearMul: 1, speedMul: 1,
       storms, storm: null, stormAt: 0, stormStarted: false, linkDay: 1, blackout: 0,
       evAt: 0, evDone: false, pending: null, ask: null, modalOpen: false,
-      tasks: [], guideIdx: null, dayStart: null, dayLog: [], decisions: [], hist: [], sampleT: 0,
+      disc: {}, forecast: null, tasks: [], guideIdx: null, dayStart: null, dayLog: [], decisions: [], hist: [], sampleT: 0,
       stats: { cleaned: 0, fixed: 0, harvested: 0, rocks: 0, stormsFaced: [], asked: 0, lateWarnings: 0, tasksDone: 0, driven: 0, ice: 0 },
       delayMin: dest === "mars" ? marsDelay() : null, over: false, dusk: 0
     };
@@ -374,6 +375,19 @@
     ice:     { title: () => "Bring ice from the Ice Drill to Life Support", need: 1, where: () => (S.cargo === "ice" ? World.obj("life") : World.obj("ice")) },
     lander:  { title: () => "Salvage a part from the Old Lander", need: 1, where: () => (S.cargo === "part" ? World.obj("shield") : World.obj("lander")) }
   };
+  const SPOTS = {
+    weather: { icon: "cloud-fog", name: "Weather Station", does: "Download its data to get a storm forecast built from real NASA records.", reward: "+10 data, and +8 s extra storm warning", cost: "Far away: take the rover", tag: "Forecast" },
+    ice: { icon: "droplets", name: "Ice Drill", does: "Drill an ice core, carry it to Life Support and melt it.", reward: "Refills Life Support", cost: "−6 Power to run the drill", tag: "Water" },
+    relay: { icon: "radio-tower", name: "Relay Tower", does: "Repair it to keep your radio link to Earth strong.", reward: "Early storm warnings for 2 days", cost: "A wiring puzzle", tag: "Comms" },
+    lander: { icon: "package", name: "Old Lander", does: "Salvage a part and fit it into the Shield Generator.", reward: "+20 Shielding, and it wears slower", cost: "Only one part to find", tag: "Salvage" }
+  };
+  function showSpotCard(id) {
+    const sp = SPOTS[id]; if (!sp) return;
+    document.querySelectorAll(".spot-card").forEach(e => e.remove());
+    const el = document.createElement("div"); el.className = "spot-card";
+    el.innerHTML = `<div class="sc-ic">${I(sp.icon)}</div><div><small>NEW MISSION SPOT · ${sp.tag}</small><b>${sp.name}</b><p>${sp.does}</p><div class="sc-row"><span class="g">▲ ${sp.reward}</span><span class="l">▼ ${sp.cost}</span></div></div>`;
+    gameEl.appendChild(el); Sound.sfx("pick"); setTimeout(() => el.remove(), 7000);
+  }
   function dustiest() { let i = 0; S.dust.forEach((d, k) => { if (d > S.dust[i]) i = k; }); return World.obj("panel" + i); }
   function nearSample() { const P = World.player; let b = null, bd = 1e9; S.samples.forEach(s => { if (!s.taken) { const d = Math.hypot(s.x - P.x, s.y - P.y); if (d < bd) { bd = d; b = s; } } }); return b; }
   function planTasks() {
@@ -443,6 +457,8 @@
     if (!simulate) return;
     const pd = dt * PASSIVE;
     S.t += dt;
+    coachTick(dt);
+    if (S.disc) { const Pl = World.player; Object.keys(SPOTS).forEach(id => { if (S.disc[id]) return; const o = World.obj(id); if (o && Math.hypot(o.x - Pl.x, o.y - Pl.y) < 460) { S.disc[id] = true; showSpotCard(id); } }); }
     const powered = S.power > 0;
     S.power += (solarNow() - R.load) * pd;
     const rv = World.rover, pad = World.obj("pad");
@@ -534,7 +550,7 @@
         if (S.weatherBroken) return { text: "Repair the station", tap: true, enabled: true };
         if (S.tasks.some(t => t.id === "weather" && !t.done)) return { text: "Download weather data", hold: 2.2, enabled: true };
         return { text: "Station online", enabled: false };
-      case "ice": return S.cargo ? { text: "Hands full", enabled: false } : { text: "Drill ice", hold: 2.5, enabled: true };
+      case "ice": return S.cargo ? { text: "Hands full", enabled: false } : S.power < 8 ? { text: "Not enough power to run the drill (needs 8)", enabled: false } : { text: "Drill ice (−6 Power)", hold: 2.5, enabled: true };
       case "relay": return S.relayBroken ? { text: "Repair the relay", tap: true, enabled: true } : { text: "Relay online", enabled: false };
       case "lander": return S.partTaken ? { text: "Already salvaged", enabled: false } : S.cargo ? { text: "Hands full", enabled: false } : { text: "Salvage antenna part", hold: 2.5, enabled: true };
     }
@@ -561,8 +577,10 @@
       case "weather":
         if (S.weatherBroken) return mini("wires", { title: "Repair the weather station" }, () => { S.weatherBroken = false; toast("Station repaired. Now download the data!"); });
         S.stored += 10; progress("weather"); logDay("You downloaded data from the Weather Station.");
-        return toast("Weather data downloaded: +10 data. Beam it home from the Radio Dish!");
-      case "ice": S.cargo = "ice"; return toast("Ice core collected! Carry it to Life Support.");
+        { const fd = Object.keys(S.storms).map(Number).filter(d => d >= S.day && !(d === S.day && S.stormStarted)).sort((a, b) => a - b)[0];
+          if (fd) { S.forecast = { day: fd, speed: S.storms[fd].speed }; return toast(`Forecast ready: a solar storm (${S.storms[fd].speed.toLocaleString()} km/s) is expected on ${S.place.dayWord} ${fd}. <b class="yellow">+10 data</b>`, 5000); } }
+        return toast("Weather data downloaded: +10 data. No storm in the forecast. Beam it home from the Radio Dish!");
+      case "ice": S.cargo = "ice"; S.power = Math.max(0, S.power - 6); return toast("Ice core collected! <b class=\"red\">−6 Power</b>. Carry it to Life Support.");
       case "relay": return mini("wires", { title: "Repair the relay tower" }, () => { S.relayBroken = false; S.relayUntil = S.day + 2; S.linkDay = S.day; progress("relay"); logDay("You repaired the Relay Tower."); toast("Relay online! Early storm warnings for 2 days."); });
       case "lander": S.cargo = "part"; S.partTaken = true; return toast("Part salvaged! Carry it to the Shield Generator.");
     }
@@ -596,6 +614,7 @@
     let secs = clamp(Math.round(hours * 0.5), 14, 45);
     const late = S.linkDay < S.day - 1 && S.relayUntil < S.day;
     if (late) { secs = Math.max(9, Math.round(secs * 0.5)); S.stats.lateWarnings++; }
+    if (S.forecast && S.forecast.day === S.day) { secs += 8; setTimeout(() => S && toast("Your Weather Station forecast gave you <b class=\"yellow\">+8 s</b> extra warning!", 3500), 1800); }
     const dmg = [0, 30, 45, 60][st.level] + (st.hasSep ? 15 : 0);
     S.storm = { st, phase: "coming", eta: secs, total: secs, hours, late, dmg, mul: 1, taken: 0, where: {} };
     Sound.music("storm"); Sound.sfx("alarm"); setTimeout(() => S && S.storm && Sound.voice("vo-storm"), 600);
@@ -759,9 +778,14 @@
       S.placeId === "mars" ? `Messages to Mars took about ${S.delayMin} minutes each way today, so help from Earth comes slowly.` : "On the Moon, Earth answers in about 1.3 seconds — help is fast.",
       `You completed ${st.tasksDone} tasks, harvested ${st.harvested} time${st.harvested === 1 ? "" : "s"}, studied ${st.rocks} rock${st.rocks === 1 ? "" : "s"} and brought back ${st.ice} ice core${st.ice === 1 ? "" : "s"}.`
     ];
+    const led = S.tk ? S.tk.led : null;
+    const TIP = { life: "Tip: hold USE at Life Support to purify water, and bring ice from the Ice Drill.", power: "Tip: scrub dusty solar panels first. Dust cuts solar power a lot.", shield: "Tip: hide in the Storm Shelter when the alarm sounds, and charge the Shield Generator." };
+    const lostKey = !success && /Life/i.test(S.failReason) ? "life" : !success && /Shield/i.test(S.failReason) ? "shield" : !success ? "power" : null;
+    const ledger = led ? `<h2>Gained and lost</h2><table class="ledger"><tr><th></th><th class="g">Gained</th><th class="l">Lost</th><th>Net</th></tr>${TK.map(k => { const g = Math.round(led[k][0]), l = Math.round(led[k][1]), n = g - l; return `<tr><td>${TKN[k]}</td><td class="g">+${g}</td><td class="l">−${l}</td><td class="${n >= 0 ? "g" : "l"}">${n >= 0 ? "+" : "−"}${Math.abs(n)}</td></tr>`; }).join("")}</table>` : "";
     render(`<section class="screen results">
       <h1>${success ? "Mission success!" : "Mission over"}</h1>
       <p class="muted" style="text-align:center">${success ? `${esc(S.site.name)} outpost survived ${DAYS} ${S.place.dayWord}s.` : `${esc(S.failReason)} The crew flew home safely — try a new plan!`}</p>
+      ${!success && lostKey ? `<div class="why-lost"><b>Why you lost:</b> ${esc(S.failReason)}<br><span>${TIP[lostKey]}</span></div>` : ""}
       <div class="stars" aria-label="${stars} of 3 stars">${[0, 1, 2].map(i => `<span class="${i < stars ? "on" : "off"}">★</span>`).join("")}</div>
       <div class="xp-gain">+${xpGain} XP · Level ${Math.floor(profile.xp / 100) + 1}</div>
       <div class="res-grid">
@@ -775,7 +799,7 @@
             <li>${crit[0] ? "★" : "☆"} Keep the crew safe for ${DAYS} ${S.place.dayWord}s</li>
             <li>${crit[1] ? "★" : "☆"} Send 60+ science to Earth</li>
             <li>${crit[2] ? "★" : "☆"} End with all three meters at 40+</li></ul></div>
-        <div class="card"><h2>Key decisions</h2>
+        <div class="card">${ledger}<h2>Key decisions</h2>
           <ul class="decisions">${S.decisions.slice(-8).map(d => `<li>${esc(cap(d))}</li>`).join("") || "<li>No decisions this time.</li>"}</ul>
           <h2>What you learned</h2><ul class="learned">${learned.map(l => `<li>${esc(l)}</li>`).join("")}</ul></div>
       </div>
@@ -791,25 +815,64 @@
      ========================================================= */
   function buildHud() {
     hud.innerHTML = `
+      <div class="dmg-flash" id="dmg-flash"></div>
+      <div class="coach" id="coach" hidden></div>
       <div class="h-tasks" id="h-tasks"></div>
-      <div class="h-clock"><div class="h-medal" id="h-medal"><div class="h-sol" id="h-sol"></div></div><div class="h-sci" id="h-sci"></div></div>
+      <div class="h-clock"><div class="h-medal" id="h-medal"><div class="h-sol" id="h-sol"></div></div><div class="h-sci" id="h-sci"></div><div class="h-fc" id="h-fc"></div></div>
       <div class="h-topright"><button class="hbtn" id="g-menu" aria-label="Menu">${I("menu")}</button></div>
       <div class="h-meters">${METERS.map(m => `<div class="h-meter" data-k="${m.k}" style="--c:${m.color}"><span class="h-ic">${I(m.icon)}</span>
-        <div class="h-mid"><span class="h-bar"><i id="m-${m.k}"></i></span><span class="h-name">${m.name}</span><b id="v-${m.k}">0</b></div></div>`).join("")}
+        <div class="h-mid"><span class="h-bar"><i id="m-${m.k}"></i></span><span class="h-name">${m.name}</span><i class="h-trend" id="t-${m.k}"></i><b id="v-${m.k}">0</b></div></div>`).join("")}
         <div class="h-crew" id="h-crew"></div></div>
       <div class="h-actions">
         <div class="stack">
           <button class="round radio" id="mc-btn" data-act="reopen" aria-label="Mission Control">${I("radio-tower")}<small id="mc-txt">Radio</small></button>
           <button class="round radar" id="alert-btn" data-act="sunwatch" aria-label="Sun Watch: real NASA solar storms"><span class="sweep"></span><b id="alert-txt">${I("sun")}</b><small>Sun Watch</small></button>
         </div>
+        <button class="jump" id="jump-btn" aria-label="Jump">${I("arrow-up")}<span>JUMP</span></button>
         <button class="use" id="use-btn" aria-label="Use"><svg class="use-ring" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" id="use-prog"/></svg><span class="use-ic" id="use-ic">${I("hand")}</span><span class="use-lb" id="use-lb">USE</span></button>
       </div>`;
     const use = $("#use-btn");
     const on = e => { e.preventDefault(); Sound.unlock(); World.keys.act = true; use.classList.add("down"); };
     const off = () => { World.keys.act = false; use.classList.remove("down"); };
+    const jb = $("#jump-btn");
+    jb.addEventListener("pointerdown", e => { e.preventDefault(); Sound.unlock(); World.keys.jump = true; jb.classList.add("down"); });
+    ["pointerup", "pointerleave", "pointercancel"].forEach(ev => jb.addEventListener(ev, () => { World.keys.jump = false; jb.classList.remove("down"); }));
     use.addEventListener("pointerdown", on); use.addEventListener("pointerup", off); use.addEventListener("pointerleave", off); use.addEventListener("pointercancel", off);
   }
+  /* ---------- gains and losses: floating numbers, trend arrows, ledger ---------- */
+  const TK = ["life", "power", "shield", "food", "science"], TKN = { life: "Life", power: "Power", shield: "Shield", food: "Food", science: "Science" };
+  function trackInit() { S.tk = { prev: {}, acc: {}, rate: {}, led: {}, t: performance.now(), win: performance.now() }; TK.forEach(k => { S.tk.prev[k] = S[k]; S.tk.acc[k] = 0; S.tk.rate[k] = 0; S.tk.led[k] = [0, 0]; }); }
+  function trackDeltas() {
+    if (!S.tk) trackInit();
+    const T = S.tk, now = performance.now(), dtS = Math.max(0.05, (now - T.t) / 1000); T.t = now;
+    TK.forEach(k => {
+      const d = S[k] - T.prev[k]; T.prev[k] = S[k];
+      if (Math.abs(d) < 40) { T.acc[k] += d; T.led[k][d >= 0 ? 0 : 1] += Math.abs(d); }
+      T.rate[k] += (d / dtS - T.rate[k]) * 0.15;
+      const el = $("#t-" + k); if (el) { const r = T.rate[k]; el.textContent = r > 0.35 ? "▲" : r < -0.35 ? "▼" : ""; el.className = "h-trend " + (r > 0.35 ? "up" : r < -0.35 ? "down" : ""); el.title = r > 0 ? "rising" : "falling"; }
+    });
+    if (now - T.win > 1200) {
+      T.win = now;
+      TK.forEach(k => {
+        const a = T.acc[k]; T.acc[k] = 0;
+        if (Math.abs(a) < (k === "science" ? 1 : 3.5)) return;
+        floatChip(k, a);
+      });
+    }
+  }
+  function floatChip(k, a) {
+    const up = a > 0, row = k === "science" ? $("#h-sci") : $(`.h-meter[data-k="${k}"]`); if (!row) return;
+    const r = row.getBoundingClientRect(), chip = document.createElement("div");
+    chip.className = "fx-float " + (up ? "up" : "down");
+    chip.textContent = `${up ? "+" : "−"}${Math.round(Math.abs(a))} ${TKN[k]}`;
+    chip.style.left = (k === "science" ? r.left + r.width / 2 - 40 : r.right + 10) + "px"; chip.style.top = r.top + "px";
+    document.body.appendChild(chip); setTimeout(() => chip.remove(), 1900);
+    row.classList.remove("flash-up", "flash-down"); void row.offsetWidth; row.classList.add(up ? "flash-up" : "flash-down");
+    if (up) Sound.sfx("gain");
+    else { Sound.sfx("loss"); if (a < -8 && k !== "food") { const f = $("#dmg-flash"); if (f) { f.classList.remove("on"); void f.offsetWidth; f.classList.add("on"); } } }
+  }
   function updateHud() {
+    trackDeltas();
     METERS.forEach(m => {
       const v = Math.round(S[m.k]);
       const b = $(`#m-${m.k}`); b.style.width = v + "%";
@@ -819,6 +882,7 @@
     $("#h-sol").innerHTML = `<small>${S.place.dayWord.toUpperCase()}</small><b>${S.day}</b><i>of ${DAYS}</i>`;
     $("#h-medal").style.setProperty("--p", Math.min(100, (S.t / DAY_LEN) * 100).toFixed(1));
     $("#h-sci").innerHTML = `${I("star")} ${S.science} science`;
+    { const fc = $("#h-fc"); const on = S.forecast && S.forecast.day >= S.day && !(S.forecast.day === S.day && S.stormStarted); fc.hidden = !on; if (on) fc.innerHTML = `${I("cloud-fog")} Storm forecast: ${cap(S.place.dayWord)} ${S.forecast.day} · ${S.forecast.speed.toLocaleString()} km/s`; }
     const doneN = S.tasks.filter(t => t.done).length;
     const html = `<div class="ribbon"><span>${cap(S.place.dayWord)} ${S.day} tasks</span><span>${doneN}/${S.tasks.length}</span></div>
       <div class="ht-bar"><i style="width:${(doneN / S.tasks.length) * 100}%"></i></div>
@@ -891,6 +955,40 @@
       <button class="btn-secondary sm" data-act="reset-progress">Reset saved progress</button>
       <button class="btn-primary" data-act="${S && !S.over && !S.attract && !S.intro ? "resume" : "close-sw"}">Done</button></div>`;
   }
+  const SUITS = [["Orange", 0xff6b35], ["Blue", 0x4c8dff], ["Green", 0x2ecc71], ["Pink", 0xff6bd5], ["Purple", 0xa070ff], ["Gold", 0xffc94a], ["Red", 0xe0453a], ["Teal", 0x1ed6c4]];
+  function suitModal() {
+    const hex = c => "#" + c.toString(16).padStart(6, "0");
+    openModal(`<div class="suit-box"><h2>Your astronaut</h2>
+      <label class="nm">Call sign<input id="suit-name" maxlength="14" value="${esc(profile.name)}" autocomplete="off"></label>
+      <div class="swatches" role="radiogroup" aria-label="Suit colour">${SUITS.map(([n, c]) => `<button class="sw ${c === profile.suit ? "on" : ""}" role="radio" aria-checked="${c === profile.suit}" aria-label="${n}" data-suit="${c}" style="--c:${hex(c)}"></button>`).join("")}</div>
+      <p class="vid-note">Teammates see your colour and call sign in multiplayer.</p>
+      <button class="btn-primary" data-act="suit-save">Save</button></div>`);
+    mbox.querySelectorAll(".sw").forEach(b => b.addEventListener("click", () => { profile.suit = +b.dataset.suit; World.setSuit(profile.suit); mbox.querySelectorAll(".sw").forEach(x => x.classList.toggle("on", x === b)); }));
+  }
+  function suitSave() { const v = ($("#suit-name") || {}).value || ""; profile.name = v.trim().slice(0, 14) || "Commander"; saveProfile(); closeModal(); if (!S || S.attract) home(); }
+  /* ---------- coach: sensible step-by-step hints in the first mission ---------- */
+  const COACH = [
+    { t: "Move with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> (or drag the joystick on a phone). Walk a few steps!", ok: c => Math.hypot(World.player.x - c.x0, World.player.y - c.y0) > 160 },
+    { t: "Look around: hold the mouse and drag, or press <kbd>Q</kbd> / <kbd>R</kbd> to turn the camera. Scroll to zoom.", ok: c => Math.abs(World.yaw - c.yaw0) > 0.45 },
+    { t: "Press <kbd>Space</kbd> (or the JUMP button) to jump. Gravity here is much weaker than on Earth!", ok: () => S.stats.jumps >= 1 },
+    { t: "Your tasks are at the top left. Follow the <b class='yellow'>yellow arrow ➤</b> to the first one.", ok: c => c.t > 14 || S.tasks.some(t => t.n > 0 || t.done) },
+    { t: "Stand next to a glowing object and press <kbd>E</kbd> (or the USE button). Some jobs need you to <b>hold</b> it.", ok: () => S.stats.tasksDone >= 1 || S.stats.cleaned >= 1 || S.stats.rocks >= 1 || S.stats.fixed >= 1 || S.stats.harvested >= 1 },
+    { t: "Watch the four meters at the bottom left. <b class='green'>▲ green</b> = rising, <b class='red'>▼ red</b> = falling. If one reaches zero, you lose!", ok: c => c.t > 9 },
+    { t: "When the <b class='red'>storm alarm</b> rings, run to the <b>Storm Shelter</b> (the round building at the bottom). You are ready, Commander!", ok: c => c.t > 8 }
+  ];
+  function coachTick(dt) {
+    if (profile.tutorDone || !S.tasks || S.day !== 1) { const e = $("#coach"); if (e && !e.hidden) e.hidden = true; return; }
+    const el = $("#coach"); if (!el) return;
+    if (!S.coach) S.coach = { i: 0, t: 0, x0: World.player.x, y0: World.player.y, yaw0: World.yaw, held: 0 };
+    const c = S.coach; c.t += dt;
+    if (c.i >= COACH.length) { profile.tutorDone = true; saveProfile(); el.hidden = true; return; }
+    const st = COACH[c.i];
+    if (el._i !== c.i) {
+      el._i = c.i; el.hidden = false;
+      el.innerHTML = `<div class="co-top"><span>TIP ${c.i + 1} / ${COACH.length}</span><button data-act="coach-skip" aria-label="Skip tips">Skip tips</button></div><p>${st.t}</p><div class="co-dots">${COACH.map((_, j) => `<i class="${j < c.i ? "d" : j === c.i ? "on" : ""}"></i>`).join("")}</div>`;
+    }
+    if (st.ok(c)) { c.held += dt; if (c.held > 0.8) { c.i++; c.t = 0; c.held = 0; c.x0 = World.player.x; c.y0 = World.player.y; c.yaw0 = World.yaw; Sound.sfx("gain"); } } else c.held = 0;
+  }
   function sunWatchModal() {
     const inGame = S && !S.over && !S.intro;
     const html = `<div class="sunwatch-wrap"><h2>Sun Watch</h2>
@@ -943,10 +1041,13 @@
       case "reopen": if (S && S.pending) { openModal(""); showChoices(); } else if (S) toast(S.linkDay >= S.day ? "Earth link is strong today." : "The radio is quiet. Check in at the Radio Dish for early storm warnings."); return;
       case "next-day": return nextDay();
       case "vidclose": closeModal(); Sound.music("explore"); return;
+      case "suit": return suitModal();
+      case "suit-save": return suitSave();
+      case "coach-skip": profile.tutorDone = true; saveProfile(); { const e = $("#coach"); if (e) e.hidden = true; } return;
       case "resume": closeModal(); if (S && S.pending && !S.ask) { openModal(""); showChoices(); } return;
       case "close-sw": SunWatch.close(); modal.hidden = true; return;
       case "sunwatch": return sunWatchModal();
-      case "controls": return openModal(`<div class="pause"><h2>Controls</h2><p>Move: W A S D or arrow keys, or click/tap where to go. On a phone: drag on the left side.</p><p>Use / drive: E, Space, or the orange USE button</p><p>Tasks: click a task to point the arrow at it</p><button class="btn-primary" data-act="resume">Back to the base</button></div>`);
+      case "controls": return openModal(`<div class="pause"><h2>Controls</h2><p>Move: W A S D or arrow keys, or click/tap where to go. On a phone: drag on the left side.</p><p>Use / drive: E, Enter, or the orange USE button</p><p>Jump: Space (or the JUMP button). Gravity is real: you jump higher on the Moon than on Mars!</p><p>Look around: drag the mouse · Q / R turn the camera · scroll to zoom</p><p>Tasks: click a task to point the arrow at it</p><button class="btn-primary" data-act="resume">Back to the base</button></div>`);
       case "quit": return home();
       case "settings": return settingsModal();
       case "tog-sound": Sound.setMuted(!Sound.muted); soundBtn(); return settingsModal();
@@ -990,9 +1091,13 @@
       haze: S.placeId === "mars" && S.solarMul < 1 ? 1 - S.solarMul : 0,
       guide: S.intro || !S.tasks ? null : guideTarget()
     }), prompt, done, hold, pickup,
+    jump: ev => {
+      Sound.sfx(ev === "up" ? "jump" : "land");
+      if (ev === "up" && S && S.stats) { S.stats.jumps = (S.stats.jumps || 0) + 1; if (!S.jumpTold && S.place) { S.jumpTold = true; toast(S.placeId === "moon" ? "Moon gravity is only 1/6 of Earth's, so you hop about 6× higher!" : "Mars gravity is 38% of Earth's, so you jump about 2.6× higher than at home!", 4500); } }
+    },
     rover: inRover => { Sound.sfx(inRover ? "engine" : "door"); if (inRover && S.stats) S.stats.driven++; }
   });
-  soundBtn(); World.setQuality(profile.q);
+  soundBtn(); World.setQuality(profile.q); World.setSuit(profile.suit);
   window.__lo = { get S() { return S; }, update, startMission, endDay, story, setDest: (d, i = 0) => { dest = d; site = D.places[d].sites[i]; } };
   requestAnimationFrame(loop);
   loading();

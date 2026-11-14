@@ -70,7 +70,11 @@ window.Sound = (() => {
     error: () => tone(180, 0.25, "square", 0.07, -60),
     door: () => tone(220, 0.3, "sine", 0.09, 220),
     engine: () => tone(110, 0.4, "sawtooth", 0.04, 60),
-    wire: () => tone(1000, 0.06, "square", 0.05)
+    wire: () => tone(1000, 0.06, "square", 0.05),
+    gain: () => { tone(740, 0.1, "triangle", 0.06); tone(988, 0.14, "triangle", 0.05, 0, 0.07); },
+    loss: () => { tone(220, 0.22, "sawtooth", 0.05, -90); },
+    jump: () => { tone(300, 0.28, "sine", 0.1, 420); tone(620, 0.2, "triangle", 0.05, 300, 0.05); },
+    land: () => { tone(140, 0.14, "sine", 0.12, -60); tone(90, 0.2, "triangle", 0.08, -30, 0.02); }
   };
   function sfx(n) { try { SFX[n] && SFX[n](); } catch (e) {} }
 
