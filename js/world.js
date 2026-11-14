@@ -17,7 +17,7 @@ window.World = (() => {
     "rock_crystalsLargeA", "rocket_baseA", "rocket_fuelA", "rocket_topA", "rocket_finsA", "barrels", "desk_computer",
     "astronaut", "solar_panel"];
   const PAL = {
-    mars: { sky: 0xe7b08a, fog: 0xe0a47c, ground: [[196, 98, 56], [226, 140, 90], [160, 72, 40]], rock: 0xa4482a, rockTrack: 0x8a3b22, rockDark: 0x6e2a16, hemiSky: 0xffe2c8, hemiGround: 0x7a3418 },
+    mars: { sky: 0xd9915e, fog: 0xc9784a, ground: [[176, 78, 42], [214, 118, 70], [132, 52, 28]], rock: 0x9a3f22, rockTrack: 0x8a3b22, rockDark: 0x6e2a16, hemiSky: 0xffe2c8, hemiGround: 0x7a3418 },
     moon: { sky: 0x0b0f2a, fog: 0x15183a, ground: [[104, 106, 118], [140, 142, 154], [76, 78, 92]], rock: 0x7d8090, rockTrack: 0x6e7182, rockDark: 0x4b4e60, hemiSky: 0xdfe6ff, hemiGround: 0x30324a }
   };
 
@@ -54,7 +54,7 @@ window.World = (() => {
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.outputEncoding = THREE.sRGBEncoding;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.35;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera(36, 1, 0.1, 120);
     hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.05); scene.add(hemi);
@@ -216,7 +216,7 @@ window.World = (() => {
     }
     g.putImageData(img, 0, 0);
     const soft = document.createElement("canvas"); soft.width = gw; soft.height = gh; const sg = soft.getContext("2d");
-    sg.filter = "blur(4px)"; sg.drawImage(c, 0, 0); sg.filter = "none";
+    sg.filter = "blur(2.5px)"; sg.drawImage(c, 0, 0); sg.filter = "none";
     sg.strokeStyle = "rgba(0,0,0,.08)"; sg.lineWidth = 3; sg.setLineDash([2, 3]);
     [[1800, 300], [3240, 1000], [3150, 2230], [440, 2240]].forEach(([x, y]) => { sg.beginPath(); sg.moveTo(2380 / 4, 1640 / 4); sg.quadraticCurveTo(((2380 + x) / 2 + 120) / 4, ((1640 + y) / 2) / 4, x / 4, y / 4); sg.stroke(); });
     miniImg = soft;
@@ -512,6 +512,7 @@ window.World = (() => {
     if (!camPos) camPos = want.clone();
     camPos.lerp(want, Math.min(1, dt * (cine ? (cine.speed || 1.2) : 5)));
     camera.position.copy(camPos);
+    const camDist = off.length(); scene.fog.near = camDist + 3; scene.fog.far = camDist + 24;   // fog always starts just past what we're looking at
     const look = camPos.clone().sub(off);
     camera.lookAt(look);
     sun.position.copy(look).add(new THREE.Vector3(-5, 14, 6)); sun.target.position.copy(look);
@@ -589,7 +590,7 @@ window.World = (() => {
   // render a still picture of an outpost (used on the menu screens)
   let snapR = null;
   function snapshot(placeId, seed, w, h, hero) {
-    if (!snapR) { snapR = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); snapR.shadowMap.enabled = true; snapR.shadowMap.type = THREE.PCFSoftShadowMap; snapR.outputEncoding = THREE.sRGBEncoding; snapR.toneMapping = THREE.ACESFilmicToneMapping; snapR.toneMappingExposure = 1.35; }
+    if (!snapR) { snapR = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); snapR.shadowMap.enabled = true; snapR.shadowMap.type = THREE.PCFSoftShadowMap; snapR.outputEncoding = THREE.sRGBEncoding; snapR.toneMapping = THREE.ACESFilmicToneMapping; snapR.toneMappingExposure = 1.1; }
     snapR.setSize(w, h, false);
     reset(placeId, { seed });
     rover.x = 2200; rover.y = 1560; rover.a = -0.6;

@@ -41,9 +41,14 @@
   const fill = t => esc(t).replace(/\{day\}/g, S && S.place ? S.place.dayWord : "day").replace(/\[\[([^\]]+)\]\]/g, (m, w) => `<button class="term" data-term="${w}">${w}</button>`);
   const marsDelay = () => Comms.marsDelayMinutes(new Date());
   const status = v => (v >= 60 ? ["Good", "st-good", "#2ecc71"] : v >= 30 ? ["Careful", "st-care", "#ffb020"] : ["Danger", "st-bad", "#ff4d4d"]);
-  function render(html) {
+  // menu screens: opts.world = show the live 3D base slowly drifting behind the menu
+  function render(html, opts = {}) {
     Globe.close();
-    app.innerHTML = html; app.hidden = false; gameEl.hidden = true;
+    if (opts.world) { gameEl.hidden = false; if (!S || !S.attract || (opts.place && S.placeId !== opts.place)) attract(opts.place || dest); World.resize(); }
+    else { if (S && S.attract) S = null; gameEl.hidden = true; }
+    document.body.classList.toggle("menu", !!opts.world);
+    document.body.classList.toggle("dim", !!opts.dim);
+    app.innerHTML = html; app.hidden = false;
     document.body.classList.remove("playing", "cine");
     window.scrollTo(0, 0);
     const h = app.querySelector("h1, h2"); if (h) { h.tabIndex = -1; h.focus({ preventScroll: true }); }
@@ -95,22 +100,21 @@
     Sound.music(null);
     render(`<section class="screen">
       <div class="home">
-        <div class="home-art" aria-hidden="true">${shots.hero ? `<img class="hero-shot" src="${shots.hero}" alt="">` : rocket("float")}</div>
-        <div class="home-copy">
-          <h1>Lunar Outpost</h1>
-          <div class="tag-line">Junior Astronaut Mission Trainer</div>
-          <p class="q">Can you keep your crew safe?</p>
-          <div class="home-btns">
-            <button class="btn-primary" data-go="start">Start mission</button>
-            <button class="btn-secondary" data-go="howto">How to play</button>
-            <button class="btn-secondary" data-go="sources">About NASA data</button>
-            <button class="link-btn" data-go="story">${I("rocket")} Watch the story</button>
+        <div class="kick">Junior Astronaut Mission Trainer</div>
+        <h1 class="logo">Lunar<span>Outpost</span></h1>
+        <p class="tag-line">Run a base on the Moon or Mars, drive the rover, and keep your crew safe from real NASA solar storms.</p>
+        <div class="home-btns">
+          <button class="btn-primary lg" data-go="start">${I("rocket")} Play</button>
+          <div class="row">
+            <button class="btn-secondary" data-go="howto">${I("lightbulb")} How to play</button>
+            <button class="btn-secondary" data-go="sources">${I("satellite")} NASA data</button>
           </div>
-          <div class="data-status">${dataStatus()}</div>
+          <button class="link-btn" data-go="story">Watch the opening story again</button>
         </div>
       </div>
-      <div class="foot">Made by Team Pheonix for the NASA Space Apps Challenge 2026</div>
-    </section>`);
+      <div class="data-status">${dataStatus()}</div>
+      <div class="foot">Team Pheonix · NASA Space Apps Challenge 2026</div>
+    </section>`, { world: true });
   }
 
   function destination() {
@@ -129,8 +133,8 @@
       <button class="btn-secondary sm back-btn" data-go="home">Back</button>
       <h1>Where will your crew live?</h1>
       <div class="dests">${card("moon")}${card("mars")}</div>
-      <div class="next-row"><button class="btn-primary" data-go="globe">Next</button></div>
-    </section>`);
+      <div class="next-row"><button class="btn-primary lg" data-go="globe">Choose landing site ${I("arrow-right")}</button></div>
+    </section>`, { world: true, place: dest });
   }
 
   function globe(sel = 0) {
@@ -161,19 +165,19 @@
     const p = D.places[dest];
     return [
       { title: "Your mission", body: `<ul>
-          <li><span class="dot" style="background:#ffd54a"></span><div><b>Run the ${esc(site.name)} outpost for ${DAYS} ${p.dayWord}s</b><span>Each ${p.dayWord} lasts 90 seconds. Finish your daily tasks — some are far away and need the rover.</span></div></li>
-          <li><span class="dot" style="background:#ff4d4d"></span><div><b>Real solar storms are coming</b><span>They come from NASA's DONKI records. When the alarm sounds, get inside the Storm Shelter!</span></div></li>
-          <li><span class="dot" style="background:#2ecc71"></span><div><b>Do science</b><span>Collect purple rocks, study them in the Lab, and beam the data home from the Radio Dish.</span></div></li>
+          <li><span class="dot" style="background:#ffd54a">${I("flag")}</span><div><b>Run the ${esc(site.name)} outpost for ${DAYS} ${p.dayWord}s</b><span>Each ${p.dayWord} lasts 90 seconds. Finish your daily tasks — some are far away and need the rover.</span></div></li>
+          <li><span class="dot" style="background:#ff4d4d">${I("sun")}</span><div><b>Real solar storms are coming</b><span>They come from NASA's DONKI records. When the alarm sounds, get inside the Storm Shelter!</span></div></li>
+          <li><span class="dot" style="background:#2ecc71">${I("flask-conical")}</span><div><b>Do science</b><span>Collect purple rocks, study them in the Lab, and beam the data home from the Radio Dish.</span></div></li>
         </ul>` },
       { title: "Your three meters", body: `<ul>
-          <li><span class="dot" style="background:#7cc4ff"></span><div><b>Life Support</b><span>Air and water for the crew</span></div></li>
-          <li><span class="dot" style="background:#ffd54a"></span><div><b>Power</b><span>Electricity for the whole base</span></div></li>
-          <li><span class="dot" style="background:#ff6b35"></span><div><b>Shielding</b><span>Protection from harmful space rays</span></div></li>
+          <li><span class="dot" style="background:#7cc4ff">${I("wind")}</span><div><b>Life Support</b><span>Air and water for the crew</span></div></li>
+          <li><span class="dot" style="background:#ffd54a">${I("zap")}</span><div><b>Power</b><span>Electricity for the whole base</span></div></li>
+          <li><span class="dot" style="background:#ff6b35">${I("shield")}</span><div><b>Shielding</b><span>Protection from harmful space rays</span></div></li>
         </ul><p class="goal">Keep all three above zero.</p>` },
       { title: "How to play", body: `<ul>
-          <li><span class="dot" style="background:#7cc4ff"></span><div><b>Move</b><span><span class="key">W A S D</span> or arrow keys · or click/tap where to go · on a phone, drag on the left side</span></div></li>
-          <li><span class="dot" style="background:#ffd54a"></span><div><b>Use things</b><span><span class="key">E</span> or <span class="key">Space</span> — or the big orange USE button. Some jobs need you to hold it.</span></div></li>
-          <li><span class="dot" style="background:#ff6b35"></span><div><b>Drive the rover</b><span>Walk to the rover and press USE. It needs charging at the yellow pad.</span></div></li>
+          <li><span class="dot" style="background:#7cc4ff">${I("map-pin")}</span><div><b>Move</b><span><span class="key">W A S D</span> or arrow keys · or click/tap where to go · on a phone, drag on the left side</span></div></li>
+          <li><span class="dot" style="background:#ffd54a">${I("hand")}</span><div><b>Use things</b><span><span class="key">E</span> or <span class="key">Space</span> — or the big orange USE button. Some jobs need you to hold it.</span></div></li>
+          <li><span class="dot" style="background:#ff6b35">${I("car-front")}</span><div><b>Drive the rover</b><span>Walk to the rover and press USE. It needs charging at the yellow pad.</span></div></li>
         </ul>` }
     ];
   }
@@ -187,7 +191,7 @@
       <div class="brief-nav">
         <button class="btn-secondary" data-brief="${mode}:skip">${mode === "howto" ? "Close" : "Skip"}</button>
         <button class="btn-primary" data-brief="${mode}:${lastCard ? "end" : i + 1}">${lastCard ? (mode === "howto" ? "Done" : "Launch!") : "Next"}</button>
-      </div></div></section>`);
+      </div></div></section>`, { world: true, dim: true });
   }
 
   function sources() {
@@ -211,12 +215,23 @@
         <article class="src"><h2>OSDR astronaut research</h2><div><span class="badge sim">Game simulation</span></div>
           <p>Not connected yet. Next step: use OSDR radiation dosimetry to make storm damage more realistic.</p>
           <a class="link" href="https://osdr.nasa.gov/" target="_blank" rel="noopener">osdr.nasa.gov</a></article>
-      </div></section>`);
+      </div></section>`, { world: true, dim: true });
   }
 
   /* =========================================================
      STORY CUTSCENE — played in the real game engine
      ========================================================= */
+  // "attract mode": the real 3D base, camera drifting slowly around it, behind the menus
+  const attractCam = { x: 1800, y: 1250 };
+  let attractT = 0;
+  function attract(place) {
+    const p = D.places[place] ? place : "mars";
+    S = storyState(); S.attract = true; S.placeId = p; S.place = D.places[p]; S.dusk = 0;
+    World.reset(p, { seed: p === "mars" ? 202 : 505 }); World.resize();
+    attractT = Math.random() * 10;
+    World.setCine({ cam: attractCam, zoom: 0.62, speed: 0.6, jump: true });
+    last = performance.now();
+  }
   function storyState() {
     return { intro: true, placeId: "mars", place: D.places.mars, life: 80, power: 80, shield: 75, food: 70, growth: 0.6,
       dust: [0.1, 0.2, 0.1, 0.15, 0.1, 0.2], samples: [], carrying: 0, stored: 0, storm: null, dusk: 1, introStorm: 0,
@@ -226,7 +241,7 @@
     stopGame();
     introSeen = true;
     S = storyState();
-    app.hidden = true; gameEl.hidden = false; document.body.classList.add("playing", "cine");
+    app.hidden = true; gameEl.hidden = false; document.body.classList.add("playing", "cine"); document.body.classList.remove("menu", "dim");
     hud.innerHTML = ""; $("#g-ticker").hidden = true;
     $("#cine").hidden = false; $("#cine-title").hidden = true; $("#cine-sub").textContent = "";
     World.reset("mars", { seed: 202 }); World.resize();
@@ -305,7 +320,7 @@
       stats: { cleaned: 0, fixed: 0, harvested: 0, rocks: 0, stormsFaced: [], asked: 0, lateWarnings: 0, tasksDone: 0, driven: 0, ice: 0 },
       delayMin: dest === "mars" ? marsDelay() : null, over: false, dusk: 0
     };
-    app.hidden = true; gameEl.hidden = false; document.body.classList.add("playing"); document.body.classList.remove("cine");
+    app.hidden = true; gameEl.hidden = false; document.body.classList.add("playing"); document.body.classList.remove("cine", "menu", "dim");
     World.reset(dest, site); World.setCine(null); World.resize();
     buildHud();
     Sound.music("explore");
@@ -446,6 +461,10 @@
   function loop(ts) {
     const dt = Math.min(0.05, (ts - last) / 1000 || 0);
     last = ts;
+    if (S && S.attract && !gameEl.hidden) {
+      attractT += dt;
+      attractCam.x = 1800 + Math.cos(attractT * 0.07) * 560; attractCam.y = 1280 + Math.sin(attractT * 0.07) * 340;
+    }
     if (S && !S.over && !gameEl.hidden) {
       update(dt);
       if (S && !S.modalOpen) World.step(dt);
@@ -731,7 +750,7 @@
         <button class="btn-primary" data-act="again">Play again</button>
         <button class="btn-secondary" data-go="dest">Switch destination</button>
         <button class="btn-secondary" data-go="home">Main menu</button>
-      </div></section>`);
+      </div></section>`, { world: true, dim: true, place: S.placeId });
   }
 
   /* =========================================================
@@ -740,14 +759,16 @@
   function buildHud() {
     hud.innerHTML = `
       <div class="h-tasks" id="h-tasks"></div>
-      <div class="h-clock"><div class="h-sol" id="h-sol"></div><div class="h-dayline"><i id="h-dayfill"></i></div><div class="h-sci" id="h-sci"></div></div>
+      <div class="h-clock"><div class="h-medal" id="h-medal"><div class="h-sol" id="h-sol"></div></div><div class="h-sci" id="h-sci"></div></div>
       <div class="h-topright"><button class="hbtn" id="g-menu" aria-label="Menu">${I("menu")}</button></div>
-      <div class="h-meters">${METERS.map(m => `<div class="h-meter" data-k="${m.k}"><span class="h-ic" style="color:${m.color}">${I(m.icon)}</span>
-        <div class="h-mid"><span class="h-name">${m.name}</span><span class="h-bar"><i id="m-${m.k}"></i></span></div><b id="v-${m.k}">0</b></div>`).join("")}
+      <div class="h-meters">${METERS.map(m => `<div class="h-meter" data-k="${m.k}" style="--c:${m.color}"><span class="h-ic">${I(m.icon)}</span>
+        <div class="h-mid"><span class="h-bar"><i id="m-${m.k}"></i></span><span class="h-name">${m.name}</span><b id="v-${m.k}">0</b></div></div>`).join("")}
         <div class="h-crew" id="h-crew"></div></div>
       <div class="h-actions">
-        <button class="round radar" id="alert-btn" data-act="sunwatch" aria-label="Sun Watch: real NASA solar storms"><span class="sweep"></span><b id="alert-txt">${I("sun")}</b><small>Sun Watch</small></button>
-        <button class="round radio" id="mc-btn" data-act="reopen" aria-label="Mission Control">${I("radio-tower")}<small id="mc-txt">Radio</small></button>
+        <div class="stack">
+          <button class="round radio" id="mc-btn" data-act="reopen" aria-label="Mission Control">${I("radio-tower")}<small id="mc-txt">Radio</small></button>
+          <button class="round radar" id="alert-btn" data-act="sunwatch" aria-label="Sun Watch: real NASA solar storms"><span class="sweep"></span><b id="alert-txt">${I("sun")}</b><small>Sun Watch</small></button>
+        </div>
         <button class="use" id="use-btn" aria-label="Use"><svg class="use-ring" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" id="use-prog"/></svg><span class="use-ic" id="use-ic">${I("hand")}</span><span class="use-lb" id="use-lb">USE</span></button>
       </div>`;
     const use = $("#use-btn");
@@ -757,16 +778,16 @@
   }
   function updateHud() {
     METERS.forEach(m => {
-      const v = Math.round(S[m.k]), [, , col] = status(v);
-      const b = $(`#m-${m.k}`); b.style.width = v + "%"; b.style.background = col;
-      const t = $(`#v-${m.k}`); t.textContent = v; t.style.color = col;
-      b.closest(".h-meter").classList.toggle("danger", v < 25);
+      const v = Math.round(S[m.k]);
+      const b = $(`#m-${m.k}`); b.style.width = v + "%";
+      $(`#v-${m.k}`).textContent = v;
+      const row = b.closest(".h-meter"); row.classList.toggle("danger", v < 25); row.classList.toggle("low", v >= 25 && v < 45);
     });
-    $("#h-sol").innerHTML = `${cap(S.place.dayWord)} <b>${S.day}</b> / ${DAYS}`;
-    $("#h-dayfill").style.width = Math.min(100, (S.t / DAY_LEN) * 100) + "%";
+    $("#h-sol").innerHTML = `<small>${S.place.dayWord.toUpperCase()}</small><b>${S.day}</b><i>of ${DAYS}</i>`;
+    $("#h-medal").style.setProperty("--p", Math.min(100, (S.t / DAY_LEN) * 100).toFixed(1));
     $("#h-sci").innerHTML = `${I("star")} ${S.science} science`;
     const doneN = S.tasks.filter(t => t.done).length;
-    const html = `<div class="ht-head"><b>${cap(S.place.dayWord)} tasks</b><span>${doneN}/${S.tasks.length}</span></div>
+    const html = `<div class="ribbon"><span>${cap(S.place.dayWord)} ${S.day} tasks</span><span>${doneN}/${S.tasks.length}</span></div>
       <div class="ht-bar"><i style="width:${(doneN / S.tasks.length) * 100}%"></i></div>
       <ul>${S.tasks.map((t, i) => `<li class="${t.done ? "done" : ""} ${S.guideIdx === i ? "sel" : ""}" data-task="${i}" role="button" tabindex="0"><span class="ck">${t.done ? I("check") : ""}</span><span>${esc(TASKS[t.id].title())}</span>${t.need > 1 ? `<em>${t.n}/${t.need}</em>` : ""}</li>`).join("")}</ul>
       ${S.cargo || S.carrying ? `<div class="ht-carry">${S.cargo ? `Carrying: <b>${S.cargo === "ice" ? "ice core" : "lander part"}</b> ` : ""}${S.carrying ? `Rocks: <b>${S.carrying}/3</b>` : ""}</div>` : ""}`;
