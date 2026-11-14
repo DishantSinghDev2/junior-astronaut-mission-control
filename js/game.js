@@ -30,7 +30,12 @@
   const NAMES = { life: "Life Support", power: "Power", shield: "Shielding", food: "Greenhouse", science: "Science" };
 
   const shots = {};
-  let S = null, dest = "mars", site = null, last = 0, hudT = 0, toastTimer = null, introSeen = false, cineRun = null;
+  // saved progress (this browser only)
+  const PROFILE_KEY = "lo-profile-v1";
+  const profile = { xp: 0, stars: 0, missions: 0, science: 0, lastSite: null, q: "high" };
+  try { Object.assign(profile, JSON.parse(localStorage.getItem(PROFILE_KEY) || "{}")); } catch (e) {}
+  const saveProfile = () => { try { localStorage.setItem(PROFILE_KEY, JSON.stringify(profile)); } catch (e) {} };
+  let S = null, dest = "moon", site = null, last = 0, hudT = 0, toastTimer = null, introSeen = false, cineRun = null;
 
   /* ---------- helpers ---------- */
   const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -44,7 +49,7 @@
   // menu screens: opts.world = show the live 3D base slowly drifting behind the menu
   function render(html, opts = {}) {
     Globe.close();
-    if (opts.world) { gameEl.hidden = false; if (!S || !S.attract || (opts.place && S.placeId !== opts.place)) attract(opts.place || dest); World.resize(); }
+    if (opts.world) { gameEl.hidden = false; attract(opts.place || dest, opts.hero ? "hero" : "drift"); World.resize(); }
     else { if (S && S.attract) S = null; gameEl.hidden = true; }
     document.body.classList.toggle("menu", !!opts.world);
     document.body.classList.toggle("dim", !!opts.dim);
@@ -73,8 +78,8 @@
      ========================================================= */
   async function loading() {
     render(`<section class="screen center loading"><div>
-      ${rocket("float")}
-      <h1 class="title">Lunar Outpost</h1><div class="sub">Mission Control</div>
+      <div class="emblem float">${I("rocket")}</div>
+      <h1 class="title">Lunar Outpost</h1><div class="sub">Explore · Analyse · Survive</div>
       <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><i id="ld-bar"></i></div>
       <p class="load-text" id="ld-text">Loading mission… 0%</p>
       <div class="dyk">Did you know? ${esc(rand(["Radio signals take time to travel between Earth and space.", "The Moon's gravity is only 1/6 of Earth's.", "Water is great at blocking space radiation.", "A day on Mars is called a sol.", "Sunsets on Mars look blue!"]))}</div>
@@ -90,7 +95,7 @@
     await Promise.all([fonts, models, Promise.race([donki, wait(6000)]), wait(1300)]);
     set(95, "Preparing the outposts…");
     await wait(50);
-    try { shots.mars = World.snapshot("mars", 202, 720, 400); shots.moon = World.snapshot("moon", 505, 720, 400); shots.hero = World.snapshot("mars", 101, 900, 900, true); } catch (e) { console.warn(e); }
+    try { shots.moon = await World.snapshot("moon", 505, 720, 420); shots.mars = await World.snapshot("mars", 202, 720, 420); } catch (e) { console.warn(e); }
     clearInterval(tick); set(100); await wait(300);
     home();
   }
@@ -98,23 +103,41 @@
   function home() {
     stopGame();
     Sound.music(null);
-    render(`<section class="screen">
-      <div class="home">
-        <div class="kick">Junior Astronaut Mission Trainer</div>
-        <h1 class="logo">Lunar<span>Outpost</span></h1>
-        <p class="tag-line">Run a base on the Moon or Mars, drive the rover, and keep your crew safe from real NASA solar storms.</p>
-        <div class="home-btns">
-          <button class="btn-primary lg" data-go="start">${I("rocket")} Play</button>
-          <div class="row">
-            <button class="btn-secondary" data-go="howto">${I("lightbulb")} How to play</button>
-            <button class="btn-secondary" data-go="sources">${I("satellite")} NASA data</button>
-          </div>
-          <button class="link-btn" data-go="story">Watch the opening story again</button>
-        </div>
+    const lvl = Math.floor(profile.xp / 100) + 1, xp = profile.xp % 100;
+    const siteName = profile.lastSite || D.places.moon.sites[0].name;
+    render(`<section class="title-screen">
+      <div class="t-brand"><div class="patch">${I("rocket")}</div><div class="bar-v"></div>
+        <div><h1>Lunar Outpost</h1><div class="sub">EXPLORE · ANALYSE · SURVIVE</div></div></div>
+      <div class="t-top">
+        <span class="t-stat" title="Stars earned">${I("star")} ${profile.stars}</span>
+        <span class="t-stat" title="Science sent to Earth">${I("flask-conical")} ${profile.science}</span>
+        <span class="t-stat" title="Missions flown">${I("flag")} ${profile.missions}</span>
       </div>
-      <div class="data-status">${dataStatus()}</div>
-      <div class="foot">Team Pheonix · NASA Space Apps Challenge 2026</div>
-    </section>`, { world: true });
+      <div class="t-left">
+        <div class="t-card"><div class="t-avatar">${I("user")}</div>
+          <div><b>Commander</b><small>Level ${lvl}</small><div class="xp"><i style="width:${xp}%"></i></div><div class="xp-t">${xp} / 100 XP</div></div></div>
+        <nav class="t-menu" aria-label="Main menu">
+          <button class="t-item primary" data-go="start">${I("play")} Start mission</button>
+          <button class="t-item" data-go="sunwatch">${I("sun")} Sun Watch</button>
+          <button class="t-item" data-go="howto">${I("book-open")} How to play</button>
+          <button class="t-item" data-go="sources">${I("satellite")} NASA data</button>
+          <button class="t-item" data-act="settings">${I("settings")} Settings</button>
+        </nav>
+        <div class="t-suit"><h3>Suit status</h3>
+          <div class="suit-row"><div class="body">${I("user")}</div>
+            <div><div class="stat"><span>Oxygen</span><span>100%</span><div class="bar"><i style="width:100%"></i></div></div>
+              <div class="stat g"><span>Energy</span><span>100%</span><div class="bar"><i style="width:100%"></i></div></div>
+              <div class="stat o"><span>Shielding</span><span>100%</span><div class="bar"><i style="width:100%"></i></div></div></div></div></div>
+      </div>
+      <div class="t-right">
+        <div class="t-mission"><span class="eyebrow">Current mission</span>
+          <h3>Survive 8 days at ${esc(siteName)}</h3>
+          <p>Keep Life Support, Power and Shielding above zero while real NASA solar storms roll in.</p>
+          ${shots.moon ? `<img src="${shots.moon}" alt="">` : ""}</div>
+      </div>
+      <div class="t-foot"><div class="t-note">${dataStatus()}<span>Team Pheonix · NASA Space Apps 2026</span></div>
+        <button class="t-tag" data-go="start">A new frontier awaits… ${I("rocket")}</button></div>
+    </section>`, { world: true, hero: true, place: "moon" });
   }
 
   function destination() {
@@ -175,7 +198,7 @@
           <li><span class="dot" style="background:#ff6b35">${I("shield")}</span><div><b>Shielding</b><span>Protection from harmful space rays</span></div></li>
         </ul><p class="goal">Keep all three above zero.</p>` },
       { title: "How to play", body: `<ul>
-          <li><span class="dot" style="background:#7cc4ff">${I("map-pin")}</span><div><b>Move</b><span><span class="key">W A S D</span> or arrow keys · or click/tap where to go · on a phone, drag on the left side</span></div></li>
+          <li><span class="dot" style="background:#7cc4ff">${I("map-pin")}</span><div><b>Move and look</b><span><span class="key">W A S D</span> walk relative to the camera · drag to look around · <span class="key">Q</span> <span class="key">R</span> turn · click the ground to walk there · on a phone, drag the left side to move</span></div></li>
           <li><span class="dot" style="background:#ffd54a">${I("hand")}</span><div><b>Use things</b><span><span class="key">E</span> or <span class="key">Space</span> — or the big orange USE button. Some jobs need you to hold it.</span></div></li>
           <li><span class="dot" style="background:#ff6b35">${I("car-front")}</span><div><b>Drive the rover</b><span>Walk to the rover and press USE. It needs charging at the yellow pad.</span></div></li>
         </ul>` }
@@ -222,15 +245,20 @@
      STORY CUTSCENE — played in the real game engine
      ========================================================= */
   // "attract mode": the real 3D base, camera drifting slowly around it, behind the menus
-  const attractCam = { x: 1800, y: 1250 };
+  const attractCam = { x: 1800, y: 1280 };
+  const attractCine = { cam: attractCam, pitch: 0.2, dist: 11.5, yaw: 0, speed: 0.8 };
   let attractT = 0;
-  function attract(place) {
-    const p = D.places[place] ? place : "mars";
-    S = storyState(); S.attract = true; S.placeId = p; S.place = D.places[p]; S.dusk = 0;
-    World.reset(p, { seed: p === "mars" ? 202 : 505 }); World.resize();
-    attractT = Math.random() * 10;
-    World.setCine({ cam: attractCam, zoom: 0.62, speed: 0.6, jump: true });
-    last = performance.now();
+  function attract(place, mode) {
+    const p = D.places[place] ? place : "moon";
+    if (!S || !S.attract || S.placeId !== p) {
+      S = storyState(); S.attract = true; S.placeId = p; S.place = D.places[p]; S.dusk = 0;
+      World.reset(p, { seed: p === "mars" ? 202 : 505 }); World.resize();
+      attractT = Math.random() * 10; last = performance.now();
+    }
+    if (S.attractMode === mode && !S.attractForce) return;
+    S.attractMode = mode;
+    if (mode === "hero") { World.hero(true); World.setCine({ ...World.HERO.title, jump: true }); }
+    else { World.hero(false); attractCine.jump = true; attractCine.jumped = false; World.setCine(attractCine); }
   }
   function storyState() {
     return { intro: true, placeId: "mars", place: D.places.mars, life: 80, power: 80, shield: 75, food: 70, growth: 0.6,
@@ -463,7 +491,7 @@
     last = ts;
     if (S && S.attract && !gameEl.hidden) {
       attractT += dt;
-      attractCam.x = 1800 + Math.cos(attractT * 0.07) * 560; attractCam.y = 1280 + Math.sin(attractT * 0.07) * 340;
+      attractCine.yaw = attractT * 0.045; attractCam.x = 1800; attractCam.y = 1300;
     }
     if (S && !S.over && !gameEl.hidden) {
       update(dt);
@@ -719,6 +747,8 @@
     const stars = crit.filter(Boolean).length;
     const final = S.science * 3 + L + P + Sh + (success ? 100 : 0) + S.stats.tasksDone * 10;
     const st = S.stats;
+    const xpGain = Math.round(final / 4);
+    profile.xp += xpGain; profile.stars += stars; profile.missions++; profile.science += S.science; profile.lastSite = S.site.name; saveProfile();
     const learned = [
       "Shielding uses power, and power is limited. Every choice has a gain and a cost.",
       `You scrubbed solar panels ${st.cleaned} time${st.cleaned === 1 ? "" : "s"}. Dust really cuts power${S.placeId === "mars" ? " on Mars" : ""}.`,
@@ -731,6 +761,7 @@
       <h1>${success ? "Mission success!" : "Mission over"}</h1>
       <p class="muted" style="text-align:center">${success ? `${esc(S.site.name)} outpost survived ${DAYS} ${S.place.dayWord}s.` : `${esc(S.failReason)} The crew flew home safely — try a new plan!`}</p>
       <div class="stars" aria-label="${stars} of 3 stars">${[0, 1, 2].map(i => `<span class="${i < stars ? "on" : "off"}">★</span>`).join("")}</div>
+      <div class="xp-gain">+${xpGain} XP · Level ${Math.floor(profile.xp / 100) + 1}</div>
       <div class="res-grid">
         <div class="card"><h2>Score</h2>
           <div class="score-row"><span>Final</span><b class="yellow">${final}</b></div>
@@ -839,6 +870,18 @@
       <button class="btn-secondary" data-act="controls">Controls</button>
       <button class="btn-secondary" data-act="quit">Quit to main menu</button></div>`);
   }
+  function settingsModal() {
+    const big = document.documentElement.classList.contains("big");
+    const row = (label, act, on, state) => `<div class="set-row"><span>${label}</span><button class="toggle" data-act="${act}" aria-pressed="${on}" aria-label="${label}: ${state}"></button></div>`;
+    modal.hidden = false; mbox.className = "modal-box";
+    if (S) { S.modalOpen = true; }
+    mbox.innerHTML = `<div class="pause"><h2>Settings</h2>
+      ${row("Sound and music", "tog-sound", !Sound.muted, Sound.muted ? "off" : "on")}
+      ${row("Larger text", "tog-text", big, big ? "on" : "off")}
+      ${row("High quality graphics", "tog-gfx", profile.q === "high", profile.q)}
+      <button class="btn-secondary sm" data-act="reset-progress">Reset saved progress</button>
+      <button class="btn-primary" data-act="${S && !S.over && !S.attract && !S.intro ? "resume" : "close-sw"}">Done</button></div>`;
+  }
   function sunWatchModal() {
     const inGame = S && !S.over && !S.intro;
     const html = `<div class="sunwatch-wrap"><h2>Sun Watch</h2>
@@ -895,6 +938,11 @@
       case "sunwatch": return sunWatchModal();
       case "controls": return openModal(`<div class="pause"><h2>Controls</h2><p>Move: W A S D or arrow keys, or click/tap where to go. On a phone: drag on the left side.</p><p>Use / drive: E, Space, or the orange USE button</p><p>Tasks: click a task to point the arrow at it</p><button class="btn-primary" data-act="resume">Back to the base</button></div>`);
       case "quit": return home();
+      case "settings": return settingsModal();
+      case "tog-sound": Sound.setMuted(!Sound.muted); soundBtn(); return settingsModal();
+      case "tog-text": document.documentElement.classList.toggle("big"); World.resize(); return settingsModal();
+      case "tog-gfx": profile.q = profile.q === "high" ? "low" : "high"; saveProfile(); World.setQuality(profile.q); return settingsModal();
+      case "reset-progress": Object.assign(profile, { xp: 0, stars: 0, missions: 0, science: 0, lastSite: null }); saveProfile(); closeModal(); return home();
       case "again": return startMission();
     }
   });
@@ -934,7 +982,7 @@
     }), prompt, done, hold, pickup,
     rover: inRover => { Sound.sfx(inRover ? "engine" : "door"); if (inRover && S.stats) S.stats.driven++; }
   });
-  soundBtn();
+  soundBtn(); World.setQuality(profile.q);
   window.__lo = { get S() { return S; }, update, startMission, endDay, story, setDest: (d, i = 0) => { dest = d; site = D.places[d].sites[i]; } };
   requestAnimationFrame(loop);
   loading();

@@ -2,8 +2,10 @@
   LUNAR OUTPOST — 3D world (three.js) with professional CC0 assets:
     Kenney "Space Kit" (base modules, rover, dishes, machines, rocks, craters, crystals, rocket parts)
     Quaternius "Astronaut" (rigged + animated: Idle / Walk / Run / Interact / Wave) and "Solar Panel".
-  Gameplay stays 2D on the ground plane (x, y in "world units"); the camera looks down at an angle
-  for a soft 3D feel with real shadows.
+  Gameplay logic stays on the ground plane (x, y in "world units"). The player sees it through a
+  third-person orbit camera (drag to look around, Q / R to rotate) under a realistic sky:
+  black Moon sky with stars and a real Earth map, or a butterscotch Mars sky, a low harsh sun,
+  and Poly Haven CC0 ground textures.
 
   game.js supplies handlers: isRunning(), view(), prompt(obj), done(obj), hold(obj, dt), pickup(sample), rover(inRover)
 */
@@ -17,8 +19,20 @@ window.World = (() => {
     "rock_crystalsLargeA", "rocket_baseA", "rocket_fuelA", "rocket_topA", "rocket_finsA", "barrels", "desk_computer",
     "astronaut", "solar_panel"];
   const PAL = {
-    mars: { sky: 0xd9915e, fog: 0xc9784a, ground: [[176, 78, 42], [214, 118, 70], [132, 52, 28]], rock: 0x9a3f22, rockTrack: 0x8a3b22, rockDark: 0x6e2a16, hemiSky: 0xffe2c8, hemiGround: 0x7a3418 },
-    moon: { sky: 0x0b0f2a, fog: 0x15183a, ground: [[104, 106, 118], [140, 142, 154], [76, 78, 92]], rock: 0x7d8090, rockTrack: 0x6e7182, rockDark: 0x4b4e60, hemiSky: 0xdfe6ff, hemiGround: 0x30324a }
+    mars: {
+      sky: [[0, "#8f6f62"], [0.30, "#bf906c"], [0.47, "#e3b58c"], [0.5, "#e8bb93"], [0.52, "#c98f66"], [1, "#a87850"]],
+      fog: 0xe0ad84, fogNear: 28, fogFar: 125, stars: false,
+      tex: "mars", tint: 0xffffff, ground: [[176, 78, 42], [214, 118, 70], [132, 52, 28]],
+      rock: 0xa4482a, rockTrack: 0x8a3b22, rockDark: 0x6e2a16,
+      sunColor: 0xffe2c2, sunI: 2.5, sunDir: [-6, 6.2, 8], hemiSky: 0xffd6b0, hemiGround: 0x6a3a22, hemiI: 0.75, exposure: 1.0
+    },
+    moon: {
+      sky: [[0, "#000003"], [0.4, "#03040c"], [0.5, "#0a0d1e"], [0.52, "#000"], [1, "#000"]],
+      fog: 0x070914, fogNear: 45, fogFar: 170, stars: true,
+      tex: "moon", tint: 0xe4e7f2, ground: [[104, 106, 118], [140, 142, 154], [76, 78, 92]],
+      rock: 0x8a8d9c, rockTrack: 0x70738a, rockDark: 0x4b4e60,
+      sunColor: 0xfff3e0, sunI: 3.3, sunDir: [-6, 5, 8], hemiSky: 0x7f93cc, hemiGround: 0x2a2c38, hemiI: 0.42, exposure: 0.95
+    }
   };
 
   let renderer, scene, camera, sun, hemi, clock, cv, host, labelEl, guideEl, miniEl, mctx, fxEl, joyEl;
@@ -27,9 +41,14 @@ window.World = (() => {
   let handlers = {}, place = "mars", pal;
   let P, rover, objects = [], solids = [], rocks = [], groupWorld, samplesGroup, partGroup, sampleMeshes = new Map(), panelMeshes = [];
   let playerRig, crew = [], roverMesh, shelterMesh, ringMesh, miniImg;
-  let t = 0, holdProg = 0, holdId = null, actLatch = false, cine = null, zoom = 1, camPos = null;
+  let t = 0, holdProg = 0, holdId = null, actLatch = false, cine = null;
+  // third-person orbit camera (yaw 0 = camera south of the player looking north)
+  let camYaw = 0, camPitch = 0.42, camDist = 4.6, cY = 0, cP = 0.9, cD = 10.4, focusV = null, heroPos = null, heroLook = null, heroMode = false;
+  let skyDome, starPts, earthMesh, sunSprite, baseGround, overlayGround, bluePoint, amberPoint, scatter = [], occl = [];
+  const occRay = new THREE.Raycaster();
+  const texCache = {};
   let vw = 800, vh = 600, parts = [];
-  const keys = { up: false, down: false, left: false, right: false, act: false };
+  const keys = { up: false, down: false, left: false, right: false, act: false, camL: false, camR: false };
   const joy = { on: false, x: 0, y: 0, ox: 0, oy: 0, id: null };
   const v3 = (x, y, h = 0) => new THREE.Vector3(x * K, h, y * K);
 
@@ -41,7 +60,12 @@ window.World = (() => {
       loader.load(`assets/models/${n}.glb`, g => {
         proto[n] = g.scene;
         if (n === "astronaut") animClips = g.animations;
-        g.scene.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+        g.scene.traverse(o => {
+          if (!o.isMesh) return;
+          o.castShadow = true; o.receiveShadow = true;
+          if (o.material.name === "_defaultMat") { o.material = new THREE.MeshPhysicalMaterial({ color: 0xa9d8ff, metalness: 0, roughness: 0.06, transparent: true, opacity: 0.26, side: THREE.DoubleSide, depthWrite: false }); o.castShadow = false; }
+          else if (o.material.metalness !== undefined) { o.material.envMapIntensity = 1.0; o.material.metalness = Math.min(o.material.metalness, 0.75); o.material.roughness = Math.min(o.material.roughness, 0.55); }
+        });
         done++; onProgress && onProgress(done / MODELS.length); res();
       }, undefined, () => { done++; onProgress && onProgress(done / MODELS.length); res(); });
     })));
@@ -54,14 +78,14 @@ window.World = (() => {
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.outputEncoding = THREE.sRGBEncoding;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
     scene = new THREE.Scene();
-    camera = new THREE.PerspectiveCamera(36, 1, 0.1, 120);
+    camera = new THREE.PerspectiveCamera(40, 1, 0.1, 700);
     hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.05); scene.add(hemi);
     sun = new THREE.DirectionalLight(0xfff0dc, 1.6);
     sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
     Object.assign(sun.shadow.camera, { left: -9, right: 9, top: 9, bottom: -9, near: 0.5, far: 40 });
-    sun.shadow.bias = -0.0008; sun.shadow.normalBias = 0.02;
+    sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.03;
     scene.add(sun); scene.add(sun.target);
     clock = new THREE.Clock();
     const mk = cls => { const d = document.createElement("div"); d.className = cls; d.hidden = true; host.appendChild(d); return d; };
@@ -83,9 +107,9 @@ window.World = (() => {
   function model(name, size, opts = {}) {
     const src = proto[name]; if (!src) return new THREE.Group();
     const inner = name === "astronaut" ? THREE.SkeletonUtils.clone(src) : src.clone(true);
+    inner.traverse(o => { if (o.isMesh) o.material = o.material.clone(); });   // own materials, so each building can fade on its own
     if (opts.tint) inner.traverse(o => {
       if (!o.isMesh) return;
-      o.material = o.material.clone();
       const c = opts.tint[o.material.name]; if (c !== undefined) o.material.color.setHex(c);
       if (opts.emissive && opts.emissive[o.material.name]) { o.material.emissive = new THREE.Color(opts.emissive[o.material.name]); o.material.emissiveIntensity = 0.7; }
     });
@@ -98,7 +122,15 @@ window.World = (() => {
     if (opts.rot) g.rotation.y = opts.rot;
     return g;
   }
-  function put(obj, x, y, h = 0) { obj.position.set(x * K, h, y * K); groupWorld.add(obj); return obj; }
+  function put(obj, x, y, h = 0) {
+    obj.position.set(x * K, h, y * K); groupWorld.add(obj);
+    const b = new THREE.Box3().setFromObject(obj), sz = b.getSize(new THREE.Vector3());
+    if (sz.y > 0.35 && sz.y < 20) {
+      const mats = []; obj.traverse(o => { if (o.isMesh) mats.push(o.material); });
+      occl.push({ g: obj, x: obj.position.x, z: obj.position.z, cy: sz.y / 2, r: Math.max(sz.x, sz.z) / 2, fade: 1, mats, base: mats.map(m => m.opacity), baseT: mats.map(m => m.transparent) });
+    }
+    return obj;
+  }
   const noShadow = o => { o.traverse(m => { if (m.isMesh) m.castShadow = false; }); return o; };
   function rockTint() { return { rock: pal.rock, rockTrack: pal.rockTrack, rockDark: pal.rockDark }; }
 
@@ -107,10 +139,14 @@ window.World = (() => {
     const seed = (site && site.seed) || 1234, r = rngFrom(seed);
     if (groupWorld) scene.remove(groupWorld);
     groupWorld = new THREE.Group(); scene.add(groupWorld);
-    scene.background = new THREE.Color(pal.sky);
-    scene.fog = new THREE.Fog(pal.fog, 14, 30);
-    hemi.color.setHex(pal.hemiSky); hemi.groundColor.setHex(pal.hemiGround);
-    objects = []; solids = []; rocks = []; parts = []; sampleMeshes.clear(); panelMeshes = [];
+    scene.fog = new THREE.Fog(pal.fog, pal.fogNear, pal.fogFar);
+    hemi.color.setHex(pal.hemiSky); hemi.groundColor.setHex(pal.hemiGround); hemi.intensity = pal.hemiI;
+    sun.color.setHex(pal.sunColor); sun.intensity = pal.sunI;
+    renderer.toneMappingExposure = pal.exposure;
+    objects = []; solids = []; rocks = []; parts = []; sampleMeshes.clear(); panelMeshes = []; scatter = []; occl = [];
+    focusV = null; heroPos = null; heroMode = false; camYaw = 0; camPitch = 0.42;
+    buildEnv();
+    scene.environment = makeEnv(renderer);
     paintGround(seed);
 
     const add = o => (objects.push(o), o);
@@ -131,7 +167,6 @@ window.World = (() => {
     put(model("machine_wireless", 150, { rot: Math.PI / 2 }), 1500, 1430); solidBox(1500, 1430, 120, 150);
     add({ id: "shelter", kind: "shelter", x: 1800, y: 1660, r: 170, label: "Storm Shelter" });
     shelterMesh = put(model("hangar_roundA", 260), 1800, 1660);
-    shelterMesh.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); o.material.transparent = true; } });
     put(model("barrels", 80), 1990, 1600); solidCircle(1990, 1600, 35);
     // solar farm
     let i = 0;
@@ -162,8 +197,8 @@ window.World = (() => {
     const clear = [{ x: 1800, y: 1350, r: 760 }, ...objects.filter(o => o.far || o.kind === "dish" || o.kind === "pad").map(o => ({ x: o.x, y: o.y, r: 260 }))];
     const ok = (x, y, rad) => x > 80 && y > 80 && x < W - 80 && y < H - 80 && clear.every(c => Math.hypot(c.x - x, c.y - y) > c.r + rad);
     const kinds = ["rock", "rock_largeA", "rock_largeB", "meteor_detailed"];
-    for (let k = 0; k < 120; k++) { const x = r() * W, y = r() * H, rad = 14 + r() * 22; if (ok(x, y, rad)) { put(model(kinds[k % 4], rad * 2.2, { tint: rockTint(), rot: r() * 6 }), x, y); rocks.push({ x, y, r: rad }); } }
-    for (let k = 0; k < 24; k++) { const x = r() * W, y = r() * H, rad = 70 + r() * 80; if (ok(x, y, rad + 60)) { put(model(kinds[1 + (k % 2)], rad * 2.3, { tint: rockTint(), rot: r() * 6 }), x, y); rocks.push({ x, y, r: rad, big: true }); } }
+    for (let k = 0; k < 120; k++) { const x = r() * W, y = r() * H, rad = 14 + r() * 22; if (ok(x, y, rad)) { const m = put(model(kinds[k % 4], rad * 2.2, { tint: rockTint(), rot: r() * 6 }), x, y); scatter.push({ m, x, y }); rocks.push({ x, y, r: rad }); } }
+    for (let k = 0; k < 24; k++) { const x = r() * W, y = r() * H, rad = 70 + r() * 80; if (ok(x, y, rad + 60)) { const m = put(model(kinds[1 + (k % 2)], rad * 2.3, { tint: rockTint(), rot: r() * 6 }), x, y); scatter.push({ m, x, y }); rocks.push({ x, y, r: rad, big: true }); } }
     for (let k = 0; k < 60; k++) { const x = r() * W, y = r() * H; if (ok(x, y, 30)) noShadow(put(model("rocks_smallA", 60 + r() * 60, { tint: rockTint(), rot: r() * 6 }), x, y)); }
     for (let k = 0; k < 18; k++) { const x = r() * W, y = r() * H, s = 160 + r() * 260; if (ok(x, y, 0)) noShadow(put(model(k % 2 ? "crater" : "craterLarge", s, { tint: rockTint(), rot: r() * 6 }), x, y, -0.01)); }
     rocks.forEach(k => solids.push({ x: k.x, y: k.y, r: k.r * 0.85 }));
@@ -181,7 +216,7 @@ window.World = (() => {
     roverMesh = model("rover", 150); groupWorld.add(roverMesh);
     P = { x: 1800, y: 1480, face: 0, moving: false, target: null, inRover: false };
     rover = { x: 2380, y: 1640, a: -Math.PI / 2, battery: 100, speed: 0 };
-    holdProg = 0; holdId = null; cine = null; camPos = null;
+    holdProg = 0; holdId = null; cine = null; focusV = null;
   }
 
   function rig(accent) {
@@ -203,56 +238,139 @@ window.World = (() => {
     r.cur = name;
   }
 
+  /* ---------------- sky, Earth, stars, ground ---------------- */
+  function loadTex(path, srgb) {
+    if (!texCache[path]) { const t = new THREE.TextureLoader().load(path); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; if (srgb) t.encoding = THREE.sRGBEncoding; texCache[path] = t; }
+    return texCache[path];
+  }
+  const sunDirV = () => new THREE.Vector3(...pal.sunDir).normalize();
+  function buildEnv() {
+    [skyDome, starPts, earthMesh, sunSprite, bluePoint, amberPoint].forEach(o => o && scene.remove(o));
+    const c = document.createElement("canvas"); c.width = 8; c.height = 256; const g = c.getContext("2d");
+    const gr = g.createLinearGradient(0, 0, 0, 256); pal.sky.forEach(([p, col]) => gr.addColorStop(p, col));
+    g.fillStyle = gr; g.fillRect(0, 0, 8, 256);
+    const tex = new THREE.CanvasTexture(c); tex.encoding = THREE.sRGBEncoding;
+    skyDome = new THREE.Mesh(new THREE.SphereGeometry(100, 28, 18), new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, fog: false, depthWrite: false }));
+    skyDome.renderOrder = -10; scene.add(skyDome);
+    starPts = null; earthMesh = null; earthGlow = null; sunSprite = null;
+    if (pal.stars) {
+      const r = rngFrom(77), N = 1600, pos = new Float32Array(N * 3);
+      for (let i = 0; i < N; i++) { let x, y, z, l; do { x = r() * 2 - 1; y = r() * 2 - 0.08; z = r() * 2 - 1; l = Math.hypot(x, y, z); } while (l > 1 || l < 0.2); pos.set([x / l * 96, y / l * 96, z / l * 96], i * 3); }
+      const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+      starPts = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 1.7, sizeAttenuation: false, fog: false, depthWrite: false, transparent: true, opacity: 0.85 }));
+      starPts.renderOrder = -9; scene.add(starPts);
+      earthMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 56, 36), new THREE.MeshBasicMaterial({ map: loadTex("assets/img/2k_earth.jpg", true), color: 0xd8dde8, fog: false, depthWrite: false }));
+      earthMesh.scale.setScalar(11); earthMesh.renderOrder = -8; scene.add(earthMesh);
+    } else {
+      const gc = document.createElement("canvas"); gc.width = gc.height = 128; const gg = gc.getContext("2d");
+      const rg = gg.createRadialGradient(64, 64, 2, 64, 64, 64); rg.addColorStop(0, "rgba(255,246,225,1)"); rg.addColorStop(0.12, "rgba(255,230,190,.9)"); rg.addColorStop(1, "rgba(255,200,140,0)");
+      gg.fillStyle = rg; gg.fillRect(0, 0, 128, 128);
+      sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(gc), fog: false, depthWrite: false, blending: THREE.AdditiveBlending, transparent: true }));
+      sunSprite.scale.setScalar(26); sunSprite.renderOrder = -8; scene.add(sunSprite);
+    }
+    // warm/cool accent lights around the base so it feels inhabited
+    bluePoint = new THREE.PointLight(0x4aa8ff, 1.6, 7, 1.6); bluePoint.position.set(15.0, 1.4, 11.9); scene.add(bluePoint);
+    amberPoint = new THREE.PointLight(0xffb45a, 1.4, 6, 1.6); amberPoint.position.set(18.0, 1.2, 12.0); scene.add(amberPoint);
+  }
+  // reflection map for the metal buildings, generated from this world's sky, sun and Earth
+  function makeEnv(rend) {
+    const es = new THREE.Scene();
+    es.add(new THREE.Mesh(skyDome.geometry, skyDome.material));
+    const sd = sunDirV().multiplyScalar(80);
+    const sunM = new THREE.Mesh(new THREE.SphereGeometry(5, 16, 12), new THREE.MeshBasicMaterial({ color: new THREE.Color(pal.sunColor).multiplyScalar(place === "moon" ? 14 : 9), fog: false }));
+    sunM.position.copy(sd); es.add(sunM);
+    if (earthMesh) { const e = new THREE.Mesh(earthMesh.geometry, earthMesh.material); e.scale.setScalar(11); e.position.set(Math.sin(0.62) * Math.cos(0.30) * 86, Math.sin(0.30) * 86, -Math.cos(0.62) * Math.cos(0.30) * 86); es.add(e); }
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(150, 24), new THREE.MeshBasicMaterial({ color: new THREE.Color(pal.ground[1][0] / 255, pal.ground[1][1] / 255, pal.ground[1][2] / 255).multiplyScalar(0.55), side: THREE.DoubleSide }));
+    ground.rotation.x = -Math.PI / 2; ground.position.y = -1; es.add(ground);
+    const pm = new THREE.PMREMGenerator(rend);
+    const tex = pm.fromScene(es, 0.03).texture; pm.dispose();
+    return tex;
+  }
+  // keep the sky locked to the camera (it is infinitely far away)
+  function syncEnv(cam) {
+    const p = cam.position;
+    skyDome.position.copy(p);
+    if (starPts) starPts.position.copy(p);
+    if (earthMesh) {
+      const d = new THREE.Vector3(Math.sin(0.62) * Math.cos(0.30), Math.sin(0.30), -Math.cos(0.62) * Math.cos(0.30)).multiplyScalar(86);
+      earthMesh.position.copy(p).add(d); earthMesh.rotation.y = 0.9 + t * 0.004;
+    }
+    if (sunSprite) sunSprite.position.copy(p).add(sunDirV().multiplyScalar(92));
+  }
+
   function paintGround(seed) {
-    const gw = 900, gh = 650, c = document.createElement("canvas"); c.width = gw; c.height = gh;
-    const g = c.getContext("2d"), img = g.createImageData(gw, gh), d = img.data, r = rngFrom(seed + 1);
-    const grid = Array.from({ length: 40 * 30 }, r), grid2 = Array.from({ length: 120 * 90 }, r);
-    const vn = (arr, cw, ch, u, v) => { const x0 = Math.floor(u), y0 = Math.floor(v), fx = u - x0, fy = v - y0, sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy), at = (x, y) => arr[Math.min(ch - 1, y) * cw + Math.min(cw - 1, x)], a = at(x0, y0), b = at(x0 + 1, y0), cc = at(x0, y0 + 1), dd = at(x0 + 1, y0 + 1); return a + (b - a) * sx + (cc - a) * sy + (a - b - cc + dd) * sx * sy; };
+    const r = rngFrom(seed + 1);
+    // minimap picture (colours from the palette)
+    const gw = 380, gh = 274, mc = document.createElement("canvas"); mc.width = gw; mc.height = gh;
+    const mg = mc.getContext("2d"), img = mg.createImageData(gw, gh), d = img.data;
+    const grid = Array.from({ length: 24 * 18 }, r);
+    const vn = (u, v) => { const x0 = Math.floor(u), y0 = Math.floor(v), fx = u - x0, fy = v - y0, sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy), at = (x, y) => grid[Math.min(17, y) * 24 + Math.min(23, x)]; return at(x0, y0) * (1 - sx) * (1 - sy) + at(x0 + 1, y0) * sx * (1 - sy) + at(x0, y0 + 1) * (1 - sx) * sy + at(x0 + 1, y0 + 1) * sx * sy; };
     const [g1, g2, g3] = pal.ground;
     for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) {
-      const n = vn(grid, 40, 30, (x / gw) * 38, (y / gh) * 28) * 0.8 + vn(grid2, 120, 90, (x / gw) * 110, (y / gh) * 85) * 0.2, k = Math.max(0, Math.min(1, (n - 0.3) * 2));
-      const col = k < 0.5 ? mix(g3, g1, k * 2) : mix(g1, g2, (k - 0.5) * 2), i = (y * gw + x) * 4;
+      const k = Math.max(0, Math.min(1, (vn((x / gw) * 22, (y / gh) * 16) - 0.3) * 2)), col = k < 0.5 ? mix(g3, g1, k * 2) : mix(g1, g2, (k - 0.5) * 2), i = (y * gw + x) * 4;
       d[i] = col[0]; d[i + 1] = col[1]; d[i + 2] = col[2]; d[i + 3] = 255;
     }
-    g.putImageData(img, 0, 0);
-    const soft = document.createElement("canvas"); soft.width = gw; soft.height = gh; const sg = soft.getContext("2d");
-    sg.filter = "blur(2.5px)"; sg.drawImage(c, 0, 0); sg.filter = "none";
-    sg.strokeStyle = "rgba(0,0,0,.08)"; sg.lineWidth = 3; sg.setLineDash([2, 3]);
-    [[1800, 300], [3240, 1000], [3150, 2230], [440, 2240]].forEach(([x, y]) => { sg.beginPath(); sg.moveTo(2380 / 4, 1640 / 4); sg.quadraticCurveTo(((2380 + x) / 2 + 120) / 4, ((1640 + y) / 2) / 4, x / 4, y / 4); sg.stroke(); });
-    miniImg = soft;
-    const tex = new THREE.CanvasTexture(soft); tex.encoding = THREE.sRGBEncoding; tex.anisotropy = 4;
-    const outer = new THREE.Mesh(new THREE.PlaneGeometry(W * K * 3, H * K * 3), new THREE.MeshStandardMaterial({ color: new THREE.Color(`rgb(${g3.join(",")})`), roughness: 1 }));
-    outer.rotation.x = -Math.PI / 2; outer.position.set(W * K / 2, -0.03, H * K / 2); outer.receiveShadow = true; groupWorld.add(outer);
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(W * K, H * K), new THREE.MeshStandardMaterial({ map: tex, roughness: 1 }));
-    ground.rotation.x = -Math.PI / 2; ground.position.set(W * K / 2, -0.02, H * K / 2); ground.receiveShadow = true; groupWorld.add(ground);
+    mg.putImageData(img, 0, 0);
+    mg.strokeStyle = "rgba(0,0,0,.14)"; mg.lineWidth = 2; mg.setLineDash([2, 3]);
+    [[1800, 300], [3240, 1000], [3150, 2230], [440, 2240]].forEach(([x, y]) => { const f = gw / W; mg.beginPath(); mg.moveTo(2380 * f, 1640 * f); mg.quadraticCurveTo(((2380 + x) / 2 + 120) * f, ((1640 + y) / 2) * f, x * f, y * f); mg.stroke(); });
+    miniImg = mc;
+
+    // real ground: big tiled Poly Haven texture, with a painted overlay for dark patches and rover tracks
+    const map = loadTex(`assets/img/${pal.tex}_diff.jpg`, true), nor = loadTex(`assets/img/${pal.tex}_nor.jpg`, false);
+    [map, nor].forEach(t => t.repeat.set(70, 70));
+    baseGround = new THREE.Mesh(new THREE.PlaneGeometry(380, 380), new THREE.MeshStandardMaterial({ map, normalMap: nor, normalScale: new THREE.Vector2(1.4, 1.4), color: pal.tint, roughness: 1, metalness: 0 }));
+    baseGround.rotation.x = -Math.PI / 2; baseGround.position.set(W * K / 2, -0.02, H * K / 2); baseGround.receiveShadow = true; groupWorld.add(baseGround);
+    const oc = document.createElement("canvas"); oc.width = 1024; oc.height = 740; const og = oc.getContext("2d"), f = 1024 / W;
+    for (let k = 0; k < 150; k++) { const x = r() * 1024, y = r() * 740, rad = 30 + r() * 110, gr = og.createRadialGradient(x, y, 0, x, y, rad); gr.addColorStop(0, `rgba(0,0,0,${0.10 + r() * 0.12})`); gr.addColorStop(1, "rgba(0,0,0,0)"); og.fillStyle = gr; og.beginPath(); og.arc(x, y, rad, 0, 7); og.fill(); }
+    og.strokeStyle = "rgba(0,0,0,.22)"; og.lineWidth = 5; og.lineCap = "round"; og.setLineDash([2, 9]);
+    [[1800, 300], [3240, 1000], [3150, 2230], [440, 2240]].forEach(([x, y]) => { og.beginPath(); og.moveTo(2380 * f, 1640 * f); og.quadraticCurveTo(((2380 + x) / 2 + 120) * f, ((1640 + y) / 2) * f, x * f, y * f); og.stroke(); });
+    const otex = new THREE.CanvasTexture(oc); otex.anisotropy = 4;
+    overlayGround = new THREE.Mesh(new THREE.PlaneGeometry(W * K, H * K), new THREE.MeshBasicMaterial({ map: otex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    overlayGround.rotation.x = -Math.PI / 2; overlayGround.position.set(W * K / 2, -0.012, H * K / 2); groupWorld.add(overlayGround);
   }
   const mix = (a, b, k) => a.map((v, i) => Math.round(v + (b[i] - v) * k));
 
   /* ---------------- input ---------------- */
   function bindInput() {
-    const map = { ArrowUp: "up", w: "up", W: "up", ArrowDown: "down", s: "down", S: "down", ArrowLeft: "left", a: "left", A: "left", ArrowRight: "right", d: "right", D: "right", e: "act", E: "act", " ": "act", Enter: "act" };
+    const map = { ArrowUp: "up", w: "up", W: "up", ArrowDown: "down", s: "down", S: "down", ArrowLeft: "left", a: "left", A: "left", ArrowRight: "right", d: "right", D: "right", e: "act", E: "act", " ": "act", Enter: "act", q: "camL", Q: "camL", r: "camR", R: "camR" };
     window.addEventListener("keydown", e => {
       const k = map[e.key]; if (!k || !running()) return;
       if (e.target && e.target.closest && e.target.closest("button") && (e.key === " " || e.key === "Enter")) return;
       if (e.key === " " || e.key.startsWith("Arrow")) e.preventDefault();
-      keys[k] = true; if (k !== "act") { P.target = null; P.path = null; }
+      keys[k] = true; if (k !== "act" && k !== "camL" && k !== "camR") { P.target = null; P.path = null; }
     });
     window.addEventListener("keyup", e => { const k = map[e.key]; if (k) keys[k] = false; });
     window.addEventListener("blur", () => Object.keys(keys).forEach(k => (keys[k] = false)));
+    // drag = look around, tap/click = walk there; on phones the left half is a joystick
+    let drag = null;
     cv.addEventListener("pointerdown", e => {
       if (!P || !running()) return;
       const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
-      if (e.pointerType === "touch" && sx < vw * 0.5) { joy.on = true; joy.id = e.pointerId; joy.ox = sx; joy.oy = sy; joy.x = joy.y = 0; cv.setPointerCapture(e.pointerId); P.target = null; return; }
-      const hit = groundPoint(sx, sy); if (hit) goTo(hit.x, hit.y);
+      if (e.pointerType === "touch" && sx < vw * 0.5) { joy.on = true; joy.id = e.pointerId; joy.ox = sx; joy.oy = sy; joy.x = joy.y = 0; cv.setPointerCapture(e.pointerId); P.target = null; P.path = null; return; }
+      drag = { id: e.pointerId, x: e.clientX, y: e.clientY, sx, sy, moved: false, yaw: camYaw, pitch: camPitch };
+      cv.setPointerCapture(e.pointerId);
     });
     cv.addEventListener("pointermove", e => {
-      if (!joy.on || e.pointerId !== joy.id) return;
-      const r = cv.getBoundingClientRect(); let dx = e.clientX - r.left - joy.ox, dy = e.clientY - r.top - joy.oy;
-      const m = Math.hypot(dx, dy), max = 50; if (m > max) { dx *= max / m; dy *= max / m; }
-      joy.x = dx / max; joy.y = dy / max;
+      if (joy.on && e.pointerId === joy.id) {
+        const r = cv.getBoundingClientRect(); let dx = e.clientX - r.left - joy.ox, dy = e.clientY - r.top - joy.oy;
+        const m = Math.hypot(dx, dy), max = 50; if (m > max) { dx *= max / m; dy *= max / m; }
+        joy.x = dx / max; joy.y = dy / max; return;
+      }
+      if (drag && e.pointerId === drag.id) {
+        const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+        if (!drag.moved && Math.hypot(dx, dy) > 8) drag.moved = true;
+        if (drag.moved) { camYaw = drag.yaw - dx * 0.006; camPitch = Math.max(0.16, Math.min(1.2, drag.pitch + dy * 0.004)); }
+      }
     });
-    const end = e => { if (e.pointerId === joy.id) { joy.on = false; joy.x = joy.y = 0; } };
+    const end = e => {
+      if (e.pointerId === joy.id && joy.on) { joy.on = false; joy.x = joy.y = 0; }
+      if (drag && e.pointerId === drag.id) {
+        if (!drag.moved && e.type === "pointerup" && running()) { const hit = groundPoint(drag.sx, drag.sy); if (hit) goTo(hit.x, hit.y); }
+        drag = null;
+      }
+    };
     cv.addEventListener("pointerup", end); cv.addEventListener("pointercancel", end);
+    cv.addEventListener("wheel", e => { if (!running()) return; e.preventDefault(); camDist = Math.max(2.6, Math.min(8, camDist + e.deltaY * 0.004)); }, { passive: false });
   }
   const running = () => !!P && handlers.isRunning && handlers.isRunning();
   const ray = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -378,6 +496,8 @@ window.World = (() => {
     t += dt;
     const v = handlers.view();
     let ix = cine ? 0 : (keys.right ? 1 : 0) - (keys.left ? 1 : 0) + joy.x, iy = cine ? 0 : (keys.down ? 1 : 0) - (keys.up ? 1 : 0) + joy.y;
+    if (!cine) camYaw += ((keys.camR ? 1 : 0) - (keys.camL ? 1 : 0)) * 1.8 * dt;
+    if (ix || iy) { const c = Math.cos(camYaw), sn = Math.sin(camYaw), rx = ix * c + iy * sn, rz = -ix * sn + iy * c; ix = rx; iy = rz; }   // keys move relative to the camera
     if (!ix && !iy && P.target) {
       const tx = P.target.x - P.x, ty = P.target.y - P.y, d = Math.hypot(tx, ty);
       if (d < (P.inRover ? 30 : 12)) { if (P.path && P.path.length > 1) { P.path.shift(); P.target = P.path[0]; } else { P.target = null; P.path = null; } }
@@ -487,39 +607,86 @@ window.World = (() => {
 
   /* ---------------- drawing ---------------- */
   const camFocus = () => (cine && cine.cam ? cine.cam : P);
+  const wrapA = a => ((a + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+  function updateCamera(dt, v) {
+    let tY = camYaw, tP = camPitch, tD = camDist * (P && P.inRover ? 1.7 : 1) * (vw < 700 ? 1.3 : 1), fh = 0.62;
+    if (cine && !cine.pos) { tY = cine.yaw || 0; tP = cine.pitch ?? 0.907; tD = cine.dist ?? 10.4 / (cine.zoom || 1); fh = 0; }
+    const k = Math.min(1, dt * (cine ? 1.6 : 6));
+    if (cine && cine.jump && !cine.jumped) { cY = tY; cP = tP; cD = tD; focusV = null; heroPos = null; cine.jumped = true; }
+    cY += wrapA(tY - cY) * k; cP += (tP - cP) * k; cD += (tD - cD) * k;
+    if (cine && cine.pos) {   // fixed cinematic camera (title screen)
+      const wp = new THREE.Vector3(cine.pos.x * K, cine.pos.h, cine.pos.y * K), wl = new THREE.Vector3(cine.look.x * K, cine.look.h, cine.look.y * K);
+      if (!heroPos) { heroPos = wp.clone(); heroLook = wl.clone(); }
+      const kk = Math.min(1, dt * (cine.speed || 1.5)); heroPos.lerp(wp, kk); heroLook.lerp(wl, kk);
+      const sway = Math.sin(t * 0.25) * 0.05;
+      camera.position.set(heroPos.x + sway, heroPos.y, heroPos.z); camera.lookAt(heroLook);
+      camera.fov += ((cine.fov || 40) - camera.fov) * k; camera.updateProjectionMatrix();
+      lightAt(heroLook, 10, v);
+    } else {
+      const f = camFocus(), wantF = v3(f.x, f.y, fh);
+      if (!focusV) focusV = wantF.clone();
+      focusV.lerp(wantF, Math.min(1, dt * (cine ? (cine.speed || 1.2) : 10)));
+      const cp = Math.cos(cP);
+      camera.position.set(focusV.x + Math.sin(cY) * cp * cD, focusV.y + Math.sin(cP) * cD, focusV.z + Math.cos(cY) * cp * cD);
+      camera.lookAt(focusV);
+      fadeOccluders(dt);
+      if (camera.fov !== 40) { camera.fov += (40 - camera.fov) * k; camera.updateProjectionMatrix(); }
+      lightAt(focusV, Math.max(7, cD * 0.95), v);
+    }
+    syncEnv(camera);
+    camYawShown = cY;
+  }
+  let camYawShown = 0;
+  // buildings between the camera and the astronaut turn see-through
+  const segTmp = new THREE.Vector3();
+  function fadeOccluders(dt) {
+    const a = camera.position, b = focusV, ab = segTmp.copy(b).sub(a), len = ab.length(); if (len < 0.01) return;
+    const hit = new Set(), cand = [];
+    if (!cine) for (const o of occl) {
+      const px = o.x - a.x, py = o.cy - a.y, pz = o.z - a.z;
+      const tt = Math.max(0, Math.min(1, (px * ab.x + py * ab.y + pz * ab.z) / (len * len)));
+      const dx = px - ab.x * tt, dy = py - ab.y * tt, dz = pz - ab.z * tt;
+      if (dx * dx + dy * dy + dz * dz < (o.r + 0.3) * (o.r + 0.3)) cand.push(o);
+    }
+    if (cand.length) {   // test feet, chest and head so a low dome in front of the astronaut still counts
+      const gs = cand.map(c => c.g);
+      for (const hh of [0.1, 0.5, 0.9]) {
+        const tgt = new THREE.Vector3(b.x, hh, b.z), dir = tgt.clone().sub(a), l2 = dir.length();
+        occRay.set(a, dir.normalize()); occRay.far = l2 - 0.2;
+        occRay.intersectObjects(gs, true).forEach(h => { let n = h.object; while (n && !cand.some(c => c.g === n)) n = n.parent; const c = cand.find(c => c.g === n); if (c) hit.add(c); });
+      }
+    }
+    for (const o of occl) {
+      const want = hit.has(o) ? 0.14 : (o.g === shelterMesh && where() === "shelter") ? 0.35 : 1, nf = o.fade + (want - o.fade) * Math.min(1, dt * 9);
+      if (Math.abs(nf - o.fade) < 0.002 && o.fade === want) continue;
+      o.fade = Math.abs(nf - want) < 0.01 ? want : nf;
+      o.mats.forEach((m, i) => { m.opacity = o.base[i] * o.fade; m.transparent = o.fade < 0.995 || o.baseT[i]; m.depthWrite = o.fade > 0.6; });
+    }
+  }
+  // sun follows the camera focus so shadows stay crisp where you are looking
+  function lightAt(target, reach, v) {
+    const sd = sunDirV();
+    sun.position.copy(target).addScaledVector(sd, 24); sun.target.position.copy(target);
+    Object.assign(sun.shadow.camera, { left: -reach, right: reach, top: reach, bottom: -reach, far: 60 }); sun.shadow.camera.updateProjectionMatrix();
+    const dusk = (v && v.dusk) || 0;
+    sun.intensity = pal.sunI * (1 - dusk * 0.7); hemi.intensity = pal.hemiI * (1 - dusk * 0.3);
+    sun.color.setHex(v && v.storm ? 0xffa060 : pal.sunColor).lerp(new THREE.Color(0x7fa0ff), dusk * 0.6);
+  }
   function draw() {
     if (!renderer || !P) return;
     const dt = Math.min(0.05, clock.getDelta());
     const v = handlers.view();
-    placeRig(playerRig, P.x, P.y, P.face, holdId ? "Interact" : P.moving ? "Run" : "Idle", dt);
+    placeRig(playerRig, P.x, P.y, P.face, heroMode ? ((t % 14) < 2.6 && t > 3 ? "Wave" : "Idle") : holdId ? "Interact" : P.moving ? "Run" : "Idle", dt);
     playerRig.obj.visible = !P.inRover && where() !== "shelter";
     ringMesh.visible = playerRig.obj.visible && !cine; ringMesh.position.copy(v3(P.x, P.y, 0.02)); ringMesh.scale.setScalar(1 + Math.sin(t * 4) * 0.06);
     crew.forEach(c => placeRig(c.rig, c.x, c.y, c.face, c.moving ? "Walk" : c.act && (c.actT -= dt) > 0 ? c.act : "Idle", dt));
     roverMesh.position.copy(v3(rover.x, rover.y, rover.speed > 5 ? Math.abs(Math.sin(t * 18)) * 0.012 : 0));
     roverMesh.rotation.y = -rover.a + Math.PI / 2;
-    const inS = where() === "shelter";
-    shelterMesh.traverse(o => { if (o.isMesh) o.material.opacity += ((inS ? 0.35 : 1) - o.material.opacity) * 0.15; });
     syncSamples(v.samples || []);
     sampleMeshes.forEach((m, s) => { m.rotation.y += dt * 1.2; m.position.y = 0.05 + Math.sin(t * 3 + s.x) * 0.03; });
     const dustCol = new THREE.Color(place === "mars" ? 0xb5683e : 0x9a9aa6);
     panelMeshes.forEach((m, i) => { const d = (v.dust || [])[i] || 0; m.traverse(o => { if (o.isMesh && o.userData.base) o.material.color.copy(o.userData.base).lerp(dustCol, d * 0.85); }); });
-    // camera: smooth follow (cinematic shots override)
-    const f = camFocus();
-    const zf = (1 / ((cine && cine.zoom) || 1)) * (vw < 700 ? 1.25 : 1);
-    zoom += (zf - zoom) * Math.min(1, dt * (cine ? 1.2 : 4));
-    const off = new THREE.Vector3(0, 8.2 * zoom, 6.4 * zoom);
-    const want = v3(f.x, f.y, 0).add(off);
-    if (!camPos) camPos = want.clone();
-    camPos.lerp(want, Math.min(1, dt * (cine ? (cine.speed || 1.2) : 5)));
-    camera.position.copy(camPos);
-    const camDist = off.length(); scene.fog.near = camDist + 3; scene.fog.far = camDist + 24;   // fog always starts just past what we're looking at
-    const look = camPos.clone().sub(off);
-    camera.lookAt(look);
-    sun.position.copy(look).add(new THREE.Vector3(-5, 14, 6)); sun.target.position.copy(look);
-    const sc = 9 * Math.max(1, zoom); Object.assign(sun.shadow.camera, { left: -sc, right: sc, top: sc, bottom: -sc }); sun.shadow.camera.updateProjectionMatrix();
-    const dusk = v.dusk || 0;
-    sun.intensity = 1.35 - dusk * 0.8; hemi.intensity = 1.05 - dusk * 0.35;
-    sun.color.setHex(v.storm ? 0xffa060 : 0xfff0dc).lerp(new THREE.Color(0x7fa0ff), dusk * 0.7);
+    updateCamera(dt, v);
     renderer.render(scene, camera);
     overlays(v);
   }
@@ -540,13 +707,13 @@ window.World = (() => {
     });
     sampleMeshes.forEach((m, s) => { if (s.taken || !list.includes(s)) { samplesGroup.remove(m); sampleMeshes.delete(s); } });
   }
-  function toScreen(x, y, h = 0) { const p = v3(x, y, h).project(camera); return { x: (p.x * 0.5 + 0.5) * vw, y: (-p.y * 0.5 + 0.5) * vh, behind: p.z > 1 }; }
+  function toScreen(x, y, h = 0) { const p = v3(x, y, h).project(camera); const behind = p.z > 1; let nx = p.x, ny = p.y; if (behind) { nx = -nx; ny = -ny; } return { x: (nx * 0.5 + 0.5) * vw, y: (-ny * 0.5 + 0.5) * vh, behind }; }
 
   function overlays(v) {
     const o = cine ? null : nearest(), pr = o ? prompt(o) : null;
     if (o && pr) {
       const s = toScreen(o.x, o.y, o.kind === "rover" ? 0.7 : 1.4);
-      labelEl.hidden = false;
+      labelEl.hidden = s.behind;
       labelEl.className = "w-label" + (pr.enabled ? " on" : "");
       labelEl.style.transform = `translate(${s.x}px, ${s.y}px) translate(-50%, -100%)`;
       const prog = holdId === o.id && pr.hold && !pr.continuous ? Math.min(1, holdProg / pr.hold) : 0;
@@ -584,43 +751,62 @@ window.World = (() => {
     (v.samples || []).forEach(s => { if (!s.taken) { mctx.fillStyle = "#c39bff"; mctx.fillRect(mx(s.x) - 3, my(s.y) - 3, 6, 6); } });
     if (v.guide) { mctx.strokeStyle = "#ffd54a"; mctx.lineWidth = 3; mctx.beginPath(); mctx.arc(mx(v.guide.x), my(v.guide.y), 11 + Math.sin(t * 6) * 2, 0, 7); mctx.stroke(); }
     mctx.fillStyle = "#2ecc71"; mctx.fillRect(mx(rover.x) - 5, my(rover.y) - 5, 10, 10);
+    const fa = Math.atan2(-Math.cos(camYawShown), -Math.sin(camYawShown));
+    mctx.fillStyle = "rgba(255,255,255,.28)"; mctx.beginPath(); mctx.moveTo(mx(P.x), my(P.y)); mctx.arc(mx(P.x), my(P.y), 42, fa - 0.55, fa + 0.55); mctx.closePath(); mctx.fill();
     mctx.fillStyle = "#ff6b35"; mctx.beginPath(); mctx.arc(mx(P.x), my(P.y), 7, 0, 7); mctx.fill(); mctx.strokeStyle = "#fff"; mctx.lineWidth = 2; mctx.stroke();
   }
 
-  // render a still picture of an outpost (used on the menu screens)
+  /* ---------------- title-screen hero shot + thumbnails ---------------- */
+  // The astronaut stands in front of the dome with Earth overhead (like a game title screen).
+  const HERO = {
+    title: { pos: { x: 1150, y: 2000, h: 0.8 }, look: { x: 1580, y: 1200, h: 1.6 }, fov: 44 },
+    card: { pos: { x: 1160, y: 2020, h: 1.0 }, look: { x: 1620, y: 1250, h: 1.4 }, fov: 52 }
+  };
+  function hero(on) {
+    heroMode = !!on;
+    if (!P) return;
+    playerRig.obj.scale.setScalar(on ? 1.55 : 1);
+    crew.forEach(c => (c.rig.obj.visible = !on));
+    if (on) {
+      P.x = 1305; P.y = 1742; P.face = -0.5; P.moving = false; P.target = null; P.path = null;
+      rover.x = 1150; rover.y = 1480; rover.a = -0.75; rover.speed = 0;
+      scatter.forEach(o => { o.m.visible = Math.hypot(o.x - 1250, o.y - 1850) > 420 && Math.hypot(o.x - 1560, o.y - 1450) > 250; });
+    } else {
+      scatter.forEach(o => (o.m.visible = true));
+    }
+  }
+  function texturesReady(maxMs = 5000) {
+    const t0 = performance.now();
+    return new Promise(res => { const chk = () => { const ok = Object.values(texCache).every(t => t.image && (t.image.complete !== false) && (t.image.width || t.image.videoWidth)); if (ok || performance.now() - t0 > maxMs) res(); else setTimeout(chk, 60); }; chk(); });
+  }
   let snapR = null;
-  function snapshot(placeId, seed, w, h, hero) {
-    if (!snapR) { snapR = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); snapR.shadowMap.enabled = true; snapR.shadowMap.type = THREE.PCFSoftShadowMap; snapR.outputEncoding = THREE.sRGBEncoding; snapR.toneMapping = THREE.ACESFilmicToneMapping; snapR.toneMappingExposure = 1.1; }
+  async function snapshot(placeId, seed, w, h) {
+    if (!snapR) { snapR = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); snapR.shadowMap.enabled = true; snapR.shadowMap.type = THREE.PCFSoftShadowMap; snapR.outputEncoding = THREE.sRGBEncoding; snapR.toneMapping = THREE.ACESFilmicToneMapping; }
     snapR.setSize(w, h, false);
-    reset(placeId, { seed });
-    rover.x = 2200; rover.y = 1560; rover.a = -0.6;
-    draw0();
-    const cam = new THREE.PerspectiveCamera(hero ? 34 : 30, w / h, 0.1, 120);
-    if (hero) { cam.position.set(12.6, 7.4, 23.5); cam.lookAt(17.9, 0.2, 13.9); }
-    else { cam.position.set(21.5, 5.2, 21.0); cam.lookAt(17.9, 0.3, 14.0); }
-    sun.position.set(12, 14, 20); sun.target.position.set(18, 0, 14);
-    Object.assign(sun.shadow.camera, { left: -10, right: 10, top: 10, bottom: -10 }); sun.shadow.camera.updateProjectionMatrix();
-    scene.fog = new THREE.Fog(pal.fog, 10, 26);
+    reset(placeId, { seed }); hero(true);
+    await texturesReady();
+    placeRig(playerRig, P.x, P.y, P.face, "Wave", 0.7);
+    roverMesh.position.copy(v3(rover.x, rover.y, 0)); roverMesh.rotation.y = -rover.a + Math.PI / 2; ringMesh.visible = false;
+    const c = HERO.card, cam = new THREE.PerspectiveCamera(c.fov, w / h, 0.1, 700);
+    cam.position.set(c.pos.x * K, c.pos.h, c.pos.y * K); cam.lookAt(c.look.x * K, c.look.h, c.look.y * K);
+    cam.updateMatrixWorld(); syncEnv(cam); lightAt(new THREE.Vector3(c.look.x * K, 0, c.look.y * K), 10, null);
+    snapR.toneMappingExposure = pal.exposure;
+    const mainEnv = scene.environment; scene.environment = makeEnv(snapR);
     snapR.render(scene, cam);
-    const url = snapR.domElement.toDataURL("image/jpeg", 0.86);
+    scene.environment = mainEnv;
+    const url = snapR.domElement.toDataURL("image/jpeg", 0.88);
     P = null;
     return url;
   }
-  // pose characters once without advancing the game (for snapshots)
-  function draw0() {
-    placeRig(playerRig, 1760, 1500, 2.6, "Wave", 0.6);
-    crew.forEach((c, i) => placeRig(c.rig, c.x, c.y, i, i === 1 ? "Interact" : "Walk", 0.4 + i * 0.3));
-    roverMesh.position.copy(v3(rover.x, rover.y, 0)); roverMesh.rotation.y = -rover.a + Math.PI / 2;
-    ringMesh.visible = false;
-  }
 
   return {
-    snapshot,
+    snapshot, hero, HERO, texturesReady,
+    setQuality(q) { if (!renderer) return; sun.castShadow = q === "high"; renderer.setPixelRatio(q === "high" ? Math.min(2, window.devicePixelRatio || 1) : 1); resize(); },
     preload, init, reset, step, draw, resize, keys, burst, where, nearest, current,
     get player() { return P; }, get rover() { return rover; }, get objects() { return objects; },
     obj: id => objects.find(o => o.id === id),
     setTarget(x, y) { if (!P) return; if (x === null) { P.target = null; P.path = null; } else goTo(x, y); },
-    setCine(c) { cine = c; if (c && c.jump) camPos = null; },
+    setCine(c) { cine = c; if (c && c.jump) { focusV = null; heroPos = null; } },
     driveRover(x, y) { rover.auto = { x, y }; },
     walkTo(x, y) { if (x === null) { if (P) { P.target = null; P.path = null; } return; } goTo(x, y); },
     free: (x, y) => !collide(x, y, 22),

@@ -14,11 +14,12 @@ No download, no login. Works with a keyboard, a mouse, or touch.
 
 A short cinematic story (narrated, with music) plays first, then you pick **Moon or Mars**, spin a **3D globe** to choose a **real landing site**, and land.
 
-You control an astronaut in a **3D top-down world** (soft shadows, animated characters, drivable rover).
+You control an astronaut in a **third-person 3D world**: a black Moon sky with stars and a real Earth map (or a butterscotch Mars sky), a low harsh sun with long shadows, real rocky ground textures and metal reflections. Buildings between the camera and you turn see-through.
 
 | Action | Keyboard | Mouse / touch |
 |---|---|---|
-| Move | W A S D / arrow keys | Click/tap the ground (pathfinding walks you around buildings) · on phones drag on the left half |
+| Move | W A S D / arrow keys (relative to the camera) | Click/tap the ground (it finds a path around buildings) · on phones drag the left half |
+| Look around | Drag with the mouse · Q / R · mouse wheel zooms | Drag the right half of the screen |
 | Use / drive / exit rover | E or Space | Big orange USE button |
 | Pick which task the arrow points to | — | Tap a task in the list |
 

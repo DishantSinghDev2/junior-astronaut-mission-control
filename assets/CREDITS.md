@@ -13,3 +13,10 @@
 
 ## Icons
 - Lucide icons (lucide.dev) — ISC License.
+
+## Ground textures
+- Gray Rocks and Red Laterite Soil Stones from Poly Haven (polyhaven.com) — CC0 1.0.
+- Earth map from Solar System Scope (www.solarsystemscope.com/textures) — CC BY 4.0, based on NASA imagery.
+
+## Fonts
+- Orbitron and Rajdhani (Google Fonts, SIL Open Font License).
