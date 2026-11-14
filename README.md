@@ -12,26 +12,19 @@ No download, no login. Works with a keyboard, a mouse, or touch.
 
 ## 🎮 How to play
 
+A short cinematic story (narrated, with music) plays first, then you pick **Moon or Mars**, spin a **3D globe** to choose a **real landing site**, and land.
+
+You control an astronaut in a **3D top-down world** (soft shadows, animated characters, drivable rover).
+
 | Action | Keyboard | Mouse / touch |
 |---|---|---|
-| Walk | ← → or A D | Tap where you want to go, or the ◀ ▶ buttons |
-| Jump | Space or W | Jump button |
-| Work at a machine | Hold E | Hold the orange E button |
+| Move | W A S D / arrow keys | Click/tap the ground (pathfinding walks you around buildings) · on phones drag on the left half |
+| Use / drive / exit rover | E or Space | Big orange USE button |
+| Pick which task the arrow points to | — | Tap a task in the list |
 
-Keep **Life Support**, **Power** and **Shielding** above zero for 8 days (a day lasts one minute).
+Keep **Life Support**, **Power** and **Shielding** above zero for 8 sols (90 seconds each).
 
-| Station | What you do there |
-|---|---|
-| ☀️ Solar panels (outside, left) | Dust builds up and cuts power. Hold E to clean. |
-| 🫁 Life Support | Fix the water recycler when it breaks. Hold E to turn Power into Life Support. |
-| 🌱 Greenhouse | Plants grow with power. Harvest when ready, or the crew goes hungry. |
-| 🛡️ Shield Generator | Hold E to turn Power into Shielding. |
-| 🏠 Storm Shelter | Stand here when a solar storm hits: it blocks 70% of the radiation. |
-| 🔬 Science Lab | Study rocks you collected outside. |
-| 📡 Radio Dish (outside, right) | Send science to Earth. Keeping in touch gives you **earlier storm warnings**. |
-
-Once a day, a decision card appears (pick one, then Confirm). Every choice has a gain **and** a cost.
-**Ask Mission Control** costs 5 Power. Their reply halves the cost of the option they recommend, but you have to wait for it.
+Each sol has a **task list**, like a mission checklist: scrub dusty solar panels (drag mini-game), repair wiring (wire mini-game), harvest the greenhouse, collect glowing rock samples, study them in the Lab, beam data home from the Radio Dish, and **drive the rover** to far outposts (Weather Station, Ice Drill, Relay Tower, Old Lander). When a **real NASA solar storm** is coming, run into the **Storm Shelter** dome.
 
 ## 🛰️ How NASA data is used *in the gameplay*
 
@@ -71,12 +64,15 @@ index.html              page shell (menus, game view, modals)
 css/style.css           design from the team's UI PDF (navy cards, Fredoka, orange buttons)
 js/config.js            API key + mission settings
 js/data-events.js       places, decision cards, facts, glossary  ← edit to add content
-js/world.js             the playable canvas world: astronaut, physics, stations, drawing
-js/game.js              rules, meters, storms, events, HUD and screens
+js/world.js             3D world (three.js): models, animation, camera, pathfinding, minimap
+js/game.js              rules, tasks, storms, events, story cutscene, HUD and screens
+js/globe.js             3D landing-site globe
+js/minigames.js         panel-scrub and wire-repair mini-games
+js/audio.js             ElevenLabs narration/music + sound effects
+assets/                 3D models, planet maps, audio (see assets/CREDITS.md)
 js/sunwatch.js          interactive NASA CME radar
 js/donki.js             live DONKI loader + Mars radio-delay calculator
 js/donki-archive.js     archived real DONKI data
-js/scene.js             Moon/Mars illustrations for the destination cards
 tools/                  archive fetcher + tiny local server
 ```
 

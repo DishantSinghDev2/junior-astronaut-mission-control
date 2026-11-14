@@ -14,13 +14,19 @@
 window.GAME_DATA = {
   places: {
     moon: {
+      sites: [
+        { id: "shackleton", name: "Shackleton Crater rim", lat: -89.9, lon: 0, seed: 505, mods: { solar: 1.15 }, chips: ["+15% sunlight"],
+          desc: "A ridge at the Moon's south pole where the Sun almost never sets. Artemis plans to explore near here, and dark craters nearby hold water ice." },
+        { id: "tranquility", name: "Tranquility Base", lat: 0.67, lon: 23.47, seed: 606, mods: { samples: 1 }, chips: ["+1 rock sample a day"],
+          desc: "Where Apollo 11 astronauts first walked on the Moon in 1969. Flat lava plains, easy to drive." }
+      ],
       id: "moon", name: "The Moon", short: "Moon outpost", dayWord: "day",
       tags: ["Short radio delay", "Easier"],
       line: "The Moon is about 3 days away by rocket.",
       gravity: 1.62,          // m/s², NASA Moon fact sheet
       gravityText: "1/6 of Earth's",
       solar: 1.1,             // power per second from clean panels
-      dustRate: 0.005,        // how fast dust covers panels
+      dustRate: 0.0025,        // how fast dust covers panels
       facts: [
         "Radio signals take about 1.3 seconds to travel between Earth and the Moon.",
         "The Moon has no air and no global magnetic field, so nothing blocks radiation from space.",
@@ -30,13 +36,23 @@ window.GAME_DATA = {
       ]
     },
     mars: {
+      sites: [
+        { id: "jezero", name: "Jezero Crater", lat: 18.4, lon: 77.5, seed: 101, mods: { samples: 2 }, chips: ["+2 rock samples a day"],
+          desc: "An ancient lake bed. NASA's Perseverance rover is exploring here, looking for signs of past life." },
+        { id: "gale", name: "Gale Crater", lat: -5.4, lon: 137.8, seed: 202, mods: {}, chips: ["Balanced"],
+          desc: "Home of NASA's Curiosity rover. Its RAD instrument measures the radiation on the surface." },
+        { id: "acidalia", name: "Acidalia Planitia", lat: 46.7, lon: -22, seed: 303, mods: { dust: 1.4 }, chips: ["Flat, easy driving", "40% more dust"],
+          desc: "Huge flat plains in the north. Great for landing — but the wind blows a lot of dust." },
+        { id: "utopia", name: "Utopia Planitia", lat: 49.7, lon: 118, seed: 404, mods: { ice: 1.5 }, chips: ["Ice gives +50% water"],
+          desc: "NASA's Mars Reconnaissance Orbiter radar found a huge layer of buried ice here." }
+      ],
       id: "mars", name: "Mars", short: "Mars outpost", dayWord: "sol",
       tags: ["Long radio delay", "Harder"],
       line: "Messages to Mars can take many minutes.",
       gravity: 3.71,
       gravityText: "38% of Earth's",
       solar: 0.86,            // Mars gets ~43% of Earth's sunlight; the outpost brought bigger panels, but it's still less than the Moon
-      dustRate: 0.007,
+      dustRate: 0.0038,
       facts: [
         "A day on Mars is called a [[sol]]. It is 24 hours, 39 minutes and 35 seconds long.",
         "Mars gets only about 43% of the sunlight Earth gets, so solar panels make less power.",
@@ -243,6 +259,17 @@ window.GAME_DATA = {
   },
 
   commander: "Commander Nova",
+
+  // Opening story (narrated by ElevenLabs). Each line shows with a picture while the voice plays.
+  storyLength: 49.8,
+  story: [
+    { art: "stars", at: 0, text: "Listen up, Commander. Far beyond Earth's blue sky, on a world of red dust and silent stone…" },
+    { art: "outpost", at: 7.6, text: "…a tiny outpost is waking up." },
+    { art: "crew", at: 10.4, text: "Four astronauts live inside. They need air to breathe, power to stay warm, and strong walls to hide from the Sun's invisible rays." },
+    { art: "sun", at: 20.2, text: "But the Sun is restless. Right now, NASA scientists are watching real storms explode from its surface — and one of them could be heading your way." },
+    { art: "rover", at: 30.8, text: "Your rover is charged. Your solar panels are already gathering dust. And Earth? Earth is too far away to save you." },
+    { art: "title", at: 39.3, text: "For the next eight days, every choice has a cost. Keep your crew alive. Make every choice count. This is Mission Control. Good luck, Commander." }
+  ],
 
   glossary: {
     sol: "A sol is one day on Mars. It lasts 24 hours, 39 minutes and 35 seconds — a bit longer than an Earth day.",
