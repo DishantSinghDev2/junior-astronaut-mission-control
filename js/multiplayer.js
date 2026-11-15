@@ -1,3 +1,4 @@
+/* AI-assisted: this file was written with help from Claude (Anthropic), directed and reviewed by Team Pheonix. See AI-DISCLOSURE.md. */
 /* Squad play: browsers connect directly (WebRTC) through PeerJS's free public broker.
    No account, no chat text: only a call sign, a suit colour, positions and 4 preset quick-chat lines are shared. */
 window.MP = (function () {

@@ -1,3 +1,4 @@
+/* AI-assisted: this file was written with help from Claude (Anthropic), directed and reviewed by Team Pheonix. See AI-DISCLOSURE.md. */
 /*
   LUNAR OUTPOST — game rules, screens, HUD, story cutscene.
   Flow: loading → home → story cutscene (first time) → Moon or Mars → 3D globe: pick a real landing site
@@ -259,6 +260,7 @@
           <h1>Choose your landing site</h1>
           <div class="site-list">${p.sites.map((s, i) => `
             <button class="site-card ${i === sel ? "sel" : ""}" data-site="${i}" aria-pressed="${i === sel}">
+              <div class="sp"><img data-photo="${s.id}" alt="" hidden><small></small></div>
               <b>${esc(s.name)}</b><span class="coords">${Math.abs(s.lat).toFixed(1)}°${s.lat >= 0 ? "N" : "S"} · ${Math.abs(s.lon).toFixed(1)}°${s.lon >= 0 ? "E" : "W"}</span>
               <p>${esc(s.desc)}</p>
               <div>${s.chips.map(c => `<span class="tag">${esc(c)}</span>`).join("")}</div>
@@ -267,6 +269,7 @@
         </div>
       </div>
     </section>`);
+    p.sites.forEach(si => NasaLive.photo(si.id).then(ph => { const im = document.querySelector(`img[data-photo="${si.id}"]`); if (!im || !ph) return; im.src = ph.url; im.alt = ph.title; im.hidden = false; im.onerror = () => (im.hidden = true); const c = im.nextElementSibling; if (c) c.innerHTML = `NASA photo · ${esc(ph.title.slice(0, 44))}${ph.live ? "" : " · archived"}`; }));
     Globe.open($("#globe"), { body: dest, sites: p.sites, onPick: (s, i) => globe(i) });
     Globe.focus(sel);
   }
@@ -279,6 +282,7 @@
           <li><span class="dot" style="background:#ff4d4d">${I("sun")}</span><div><b>Real solar storms are coming</b><span>They come from NASA's DONKI records. When the alarm sounds, get inside the Storm Shelter!</span></div></li>
           <li><span class="dot" style="background:#2ecc71">${I("flask-conical")}</span><div><b>Do science</b><span>Collect purple rocks, study them in the Lab, and beam the data home from the Radio Dish.</span></div></li>
         </ul>` },
+      { title: "Today at " + site.name, body: `<ul>${SpaceEnv.describe(SpaceEnv.forSite(dest, site, new Date())).map(([k, v], i) => `<li><span class="dot" style="background:${["#7cc4ff", "#ffd54a", "#ff9a4a", "#4cffb0", "#b07cff"][i % 5]}">${I(["orbit", "star", "sun", "sparkles", "globe"][i % 5])}</span><div><b>${k}</b><span>${esc(v)}</span></div></li>`).join("")}</ul><p class="goal">Real conditions computed for today's date. Your sun, sunsets${dest === "moon" ? " and Earth's phase" : ""} follow them.</p>` },
       { title: "Your four meters", body: `<ul>
           <li><span class="dot" style="background:#7cc4ff">${I("wind")}</span><div><b>Life Support</b><span>Air and water for the crew</span></div></li>
           <li><span class="dot" style="background:#ffd54a">${I("zap")}</span><div><b>Power</b><span>Electricity for the whole base</span></div></li>
@@ -452,6 +456,7 @@
     }
     app.hidden = true; gameEl.hidden = false; document.body.classList.add("playing"); document.body.classList.remove("cine", "menu", "dim");
     World.reset(dest, site); World.setCine(null); World.resize();
+    S.env = SpaceEnv.forSite(dest, site, new Date());
     crewInit();
     buildHud();
     if (MP.role === "host" && !(opts && opts.storms)) MP.start({ dest, site: D.places[dest].sites.indexOf(site), storms, days: DAYS });
@@ -750,7 +755,8 @@
     S.shield -= R.wear * S.wearMul * S.up.wear * df * (powered ? 1 : 2) * pd;
     S.dust = S.dust.map(d => Math.min(1, d + S.place.dustRate * (S.mods.dust || 1) * S.up.dust * pd * (0.6 + Math.random() * 0.8)));
     S.sending = Math.max(0, S.sending - dt); S.boosting = Math.max(0, S.boosting - dt);
-    S.dusk = S.t > DAY_LEN * 0.82 ? Math.min(1, (S.t - DAY_LEN * 0.82) / (DAY_LEN * 0.18)) : 0;
+    if (S.env) { const sa = SpaceEnv.sunAt(S.env, S.t / DAY_LEN); S.sun = sa; S.dusk = sa.dusk; S.sunsetNow = S.t / DAY_LEN > sa.us - 0.04; }
+    else S.dusk = S.t > DAY_LEN * 0.82 ? Math.min(1, (S.t - DAY_LEN * 0.82) / (DAY_LEN * 0.18)) : 0;
 
     if (S.storms[S.day] && !S.stormStarted && S.t >= S.stormAt && !S.modalOpen) startStorm();
     if (S.storm) {
@@ -1140,7 +1146,7 @@
       <div class="squad" id="squad" hidden></div>
       <div class="h-tasks" id="h-tasks"></div>
       <div class="h-clock"><div class="h-medal" id="h-medal"><div class="h-sol" id="h-sol"></div></div><div class="h-sci" id="h-sci"></div><div class="h-fc" id="h-fc"></div></div>
-      <div class="h-topright"><button class="hbtn" id="g-menu" aria-label="Menu">${I("menu")}</button></div>
+      <div class="h-topright"><button class="hbtn" data-act="nasa" aria-label="Live from NASA" title="Live from NASA">${I("telescope")}</button><button class="hbtn" id="g-menu" aria-label="Menu">${I("menu")}</button></div>
       <div class="h-meters">${METERS.map(m => `<div class="h-meter" data-k="${m.k}" style="--c:${m.color}"><span class="h-ic">${I(m.icon)}</span>
         <div class="h-mid"><span class="h-bar"><i id="m-${m.k}"></i></span><span class="h-name">${m.name}</span><i class="h-trend" id="t-${m.k}"></i><b id="v-${m.k}">0</b></div></div>`).join("")}
         <div class="h-crew" id="h-crew"></div></div>
@@ -1235,7 +1241,7 @@
     else if (World.player.inRover && World.rover.battery < 20) { msg = "Rover battery low! Drive back to the yellow charging pad."; cls = "warn"; }
     else if (S.power < 30) { msg = "Power is low. Scrub dusty panels or save energy."; cls = "warn"; }
     else if (S.shield < 35) { msg = "Shielding is low. Charge it at the Shield Generator."; cls = "warn"; }
-    else if (S.dusk > 0) msg = `Sunset — the ${S.place.dayWord} is ending.${S.placeId === "mars" ? " Mars sunsets really are blue!" : ""}`;
+    else if (S.sunsetNow) msg = `Sunset — the ${S.place.dayWord} is ending.${S.placeId === "mars" ? " Mars sunsets really are blue!" : ""}`;
     tk.textContent = msg; tk.className = `ticker ${cls}`; tk.hidden = !msg;
   }
   function toast(html, ms = 3500) {
@@ -1290,7 +1296,7 @@
     ["Textures and maps", [["Poly Haven", "Ground textures: Gray Rocks, Red Laterite Soil Stones (polyhaven.com)", "CC0 1.0"], ["Solar System Scope", "Mars, Moon and Earth maps, based on NASA data (solarsystemscope.com/textures), resized", "CC BY 4.0"]]],
     ["Audio", [["Narration and voice lines", "ElevenLabs text-to-speech, voice Atlas", "AI generated"], ["Music", "Lobby, exploration, storm and drop tracks made with ElevenLabs Music v2.5", "AI generated"], ["Sound effects", "Synthesized live with the Web Audio API", "No sample files"]]],
     ["Software, fonts and icons", [["three.js r128", "3D engine (threejs.org)", "MIT"], ["PeerJS 1.5.4", "Squad play (peerjs.com)", "MIT"], ["Lucide", "Icons (lucide.dev)", "ISC"], ["Orbitron, Rajdhani, Noto Sans Devanagari", "Fonts from Google Fonts", "SIL OFL 1.1"]]],
-    ["AI assistance", [["Claude (Anthropic)", "Helped write the code, the Hindi translation and parts of the text. Team Pheonix reviewed it and is responsible for the project.", ""]]]
+    ["Super Intelligence (SI) tools used", [["Code, data and text", "Written with help from Claude (Anthropic): the game code, event texts, Hindi translation and documentation. Team Pheonix directed and reviewed it.", "SI-assisted"], ["Voice and music", "Narration, voice lines and music were generated by ElevenLabs. Every audio file carries an SI-generated tag in its metadata.", "SI-generated"], ["Tutorial video", "The how-to-play video has an AI voice-over and a visible SI watermark. Its footage is rendered by the game itself.", "SI-assisted"], ["Images", "No images were generated by SI. NASA pictures are shown unchanged with credit. No NASA logos, flags or mission identifiers appear in SI-generated content.", ""], ["Full list", "AI-DISCLOSURE.md in the project", ""]]]
   ];
   function creditsModal() {
     openModal(`<div class="credits-box"><h2>Credits</h2>
@@ -1298,6 +1304,27 @@
       ${CREDITS.map(([h, rows]) => `<h3>${h}</h3><ul>${rows.map(([n, d, l]) => `<li><b>${n}</b> <span>${d}</span>${l ? ` <em>${l}</em>` : ""}</li>`).join("")}</ul>`).join("")}
       <p class="vid-note">Full list: assets/CREDITS.md</p>
       <button class="btn-primary" data-act="resume">Close</button></div>`);
+  }
+  async function nasaModal() {
+    const env = S && S.env ? S.env : SpaceEnv.forSite(dest, site || D.places[dest].sites[0], new Date()), sname = (S && S.site ? S.site : site || D.places[dest].sites[0]).name;
+    const lines = SpaceEnv.describe(env).map(([k, v]) => `<li><b>${k}</b> <span>${esc(v)}</span></li>`).join("");
+    openModal(`<div class="nasabox"><h2>Live from NASA</h2>
+      <div class="nl-grid"><figure id="nl-sun"><div class="ph"></div><figcaption>Loading the Sun…</figcaption></figure><figure id="nl-2"><div class="ph"></div><figcaption>Loading…</figcaption></figure></div>
+      <h3>Today at ${esc(sname)}</h3><ul class="nl-list">${lines}</ul>
+      <p class="vid-note">Pictures are NASA's and are shown unchanged. Sources: SDO (sdo.gsfc.nasa.gov), ${dest === "mars" ? "Mars 2020 raw images (mars.nasa.gov)" : "EPIC on DSCOVR (epic.gsfc.nasa.gov)"}. Sun, Mars and Moon numbers are computed from the date. Archived means the live service did not answer.</p>
+      <button class="btn-primary" data-act="resume">Close</button></div>`);
+    const set = (id, html) => { const f = document.getElementById(id); if (f) f.innerHTML = html; };
+    const sn = NasaLive.sun(); set("nl-sun", `<img src="${sn.url}" alt="The Sun now" onerror="this.parentNode.querySelector('figcaption').textContent='The Sun picture is not available right now.'"><figcaption><span class="badge live">Live</span> ${esc(sn.caption)} <i>Image: NASA/SDO</i></figcaption>`);
+    if (dest === "mars") {
+      const m = await NasaLive.mars();
+      if (!m) return set("nl-2", `<div class="ph"></div><figcaption>No Perseverance pictures could be loaded.</figcaption>`);
+      const it = m.items[0];
+      set("nl-2", `<img src="${it.url}" alt="Perseverance ${esc(it.cam)}"><figcaption><span class="badge ${m.live ? "live" : "arch"}">${m.live ? "Live" : "Archived"}</span> Newest picture from Perseverance: sol ${it.sol}, ${esc(it.cam)}, ${esc((it.date || "").slice(0, 10))}. <i>Image: NASA/JPL-Caltech</i> <a href="${it.link}" target="_blank" rel="noopener">raw images</a></figcaption>`);
+    } else {
+      const e = await NasaLive.earth();
+      if (!e) return set("nl-2", `<div class="ph"></div><figcaption>No Earth picture could be loaded.</figcaption>`);
+      set("nl-2", `<img src="${e.url}" alt="Earth"><figcaption><span class="badge ${e.live ? "live" : "arch"}">${e.live ? "Live" : "Archived"}</span> Earth today (${esc(e.date)}). Your home planet, seen from a million miles away. <i>Image: NASA/DSCOVR EPIC</i></figcaption>`);
+    }
   }
   const SUITS = [["Orange", 0xff6b35], ["Blue", 0x4c8dff], ["Green", 0x2ecc71], ["Pink", 0xff6bd5], ["Purple", 0xa070ff], ["Gold", 0xffc94a], ["Red", 0xe0453a], ["Teal", 0x1ed6c4]];
   function suitModal() {
@@ -1394,6 +1421,7 @@
       case "lang-toggle": { const c = I18N.codes, i = c.indexOf(I18N.lang); return I18N.set(c[(i + 1) % c.length]); }
       case "credits": return creditsModal();
       case "crew": return crewModal();
+      case "nasa": return nasaModal();
       case "shop": return shop("pause");
       case "shop-done": closeModal(); if (S && S.shopFrom === "day") { S.shopFrom = null; advanceDay(); } return;
       case "suit": return suitModal();
@@ -1442,7 +1470,7 @@
       broken: S.broken, leakAt: S.leakAt, samples: S.samples, carrying: S.carrying, stored: S.stored, cargo: S.cargo,
       sending: S.sending > 0, boosting: S.boosting > 0, storm: S.storm && S.storm.phase === "hit" ? 1 : 0,
       stormSoon: !!(S.storm && S.storm.phase === "coming"), speedMul: S.speedMul, lamps: S.power > 0, charging: S.charging,
-      weatherBroken: S.weatherBroken, relayBroken: S.relayBroken, partTaken: S.partTaken, dusk: S.dusk,
+      weatherBroken: S.weatherBroken, relayBroken: S.relayBroken, partTaken: S.partTaken, dusk: S.dusk, sunEl: S.sun ? S.sun.el : undefined, sunAz: S.sun ? S.sun.az : undefined, sunLight: S.sun ? S.sun.light : undefined, earthIllum: S.env && S.env.earthIllum, earthWaning: !!(S.env && S.env.moon && S.env.moon.waxing),
       haze: S.placeId === "mars" && S.solarMul < 1 ? 1 - S.solarMul : 0,
       roverDrain: S.up ? S.up.rover : 1,
       guide: S.intro || !S.tasks ? null : guideTarget()

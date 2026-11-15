@@ -1,3 +1,4 @@
+/* AI-assisted: this file was written with help from Claude (Anthropic), directed and reviewed by Team Pheonix. See AI-DISCLOSURE.md. */
 /*
   MINI-GAMES
   scrub(container, opts, onDone): wipe dust off a solar panel by dragging (or hold E/Space to auto-scrub)

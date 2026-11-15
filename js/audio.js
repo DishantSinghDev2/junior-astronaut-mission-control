@@ -1,3 +1,4 @@
+/* AI-assisted: this file was written with help from Claude (Anthropic), directed and reviewed by Team Pheonix. See AI-DISCLOSURE.md. */
 /*
   SOUND — ElevenLabs narration + music (files in assets/audio), plus small UI sound effects
   made with the Web Audio API (no files needed). Voice lines duck the music while they play.

@@ -1,3 +1,4 @@
+/* AI-assisted: this file was written with help from Claude (Anthropic), directed and reviewed by Team Pheonix. See AI-DISCLOSURE.md. */
 /* BASE KIT — builds the long modular outpost (habitat tubes, geodesic dome, corridors) with walk-in interiors.
    Everything is procedural (canvas textures + boxes/cylinders) plus CC0 Kenney props for furniture.
    World units: 1 astronaut = 84 units tall (≈1.8 m), so 1 m ≈ 47 units. */

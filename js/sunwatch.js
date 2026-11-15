@@ -1,3 +1,4 @@
+/* AI-assisted: this file was written with help from Claude (Anthropic), directed and reviewed by Team Pheonix. See AI-DISCLOSURE.md. */
 /*
   SUN WATCH — an interactive look at REAL NASA DONKI CMEs.
   Each dot is a real Coronal Mass Ejection. Drag the time slider (or press Play)

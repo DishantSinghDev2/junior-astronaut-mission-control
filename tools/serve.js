@@ -1,3 +1,4 @@
+/* AI-assisted: this file was written with help from Claude (Anthropic), directed and reviewed by Team Pheonix. See AI-DISCLOSURE.md. */
 // Tiny local web server for testing: node tools/serve.js  ->  http://localhost:8080
 // Supports Range requests so audio can be seeked (like GitHub Pages).
 const http = require("http"), fs = require("fs"), path = require("path");

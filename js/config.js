@@ -1,3 +1,4 @@
+/* AI-assisted: this file was written with help from Claude (Anthropic), directed and reviewed by Team Pheonix. See AI-DISCLOSURE.md. */
 /*
   SETTINGS
   NASA_API_KEY: our team key from https://api.nasa.gov (free; meant to be used in public web pages).

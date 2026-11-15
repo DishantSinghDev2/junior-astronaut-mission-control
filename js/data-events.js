@@ -1,3 +1,4 @@
+/* AI-assisted: this file was written with help from Claude (Anthropic), directed and reviewed by Team Pheonix. See AI-DISCLOSURE.md. */
 /*
   LUNAR OUTPOST — game data: places, events, facts, glossary.
   Wrapped in window.GAME_DATA so the game also works when index.html is opened from disk.
@@ -15,7 +16,7 @@ window.GAME_DATA = {
   places: {
     moon: {
       sites: [
-        { id: "shackleton", name: "Shackleton Crater rim", lat: -89.9, lon: 0, seed: 505, mods: { solar: 1.15 }, chips: ["+15% sunlight"],
+        { id: "shackleton", name: "Shackleton Crater rim", lat: -89.9, lon: 0, seed: 505, lit: 0.85, mods: { solar: 1.15 }, chips: ["+15% sunlight"],
           desc: "A ridge at the Moon's south pole where the Sun almost never sets. Artemis plans to explore near here, and dark craters nearby hold water ice." },
         { id: "tranquility", name: "Tranquility Base", lat: 0.67, lon: 23.47, seed: 606, mods: { samples: 1 }, chips: ["+1 rock sample a day"],
           desc: "Where Apollo 11 astronauts first walked on the Moon in 1969. Flat lava plains, easy to drive." }

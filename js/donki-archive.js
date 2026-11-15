@@ -1,3 +1,4 @@
+/* AI-assisted: this file was written with help from Claude (Anthropic), directed and reviewed by Team Pheonix. See AI-DISCLOSURE.md. */
 /* REAL NASA DONKI data, saved by tools/fetch_donki_archive.py. This is ARCHIVED data, not live. */
 window.DONKI_ARCHIVE = {
  "savedOn": "2026-11-13",

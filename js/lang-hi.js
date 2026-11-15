@@ -1,3 +1,4 @@
+/* AI-assisted: this file was written with help from Claude (Anthropic), directed and reviewed by Team Pheonix. See AI-DISCLOSURE.md. */
 /* हिन्दी (Hindi) phrases for Lunar Outpost. Keys are the exact English text shown on screen. */
 (function () {
   const D = {

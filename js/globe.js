@@ -1,3 +1,4 @@
+/* AI-assisted: this file was written with help from Claude (Anthropic), directed and reviewed by Team Pheonix. See AI-DISCLOSURE.md. */
 /*
   3D GLOBE — spin Mars or the Moon and pick a real landing site.
   Uses three.js and real planet maps from Solar System Scope (CC BY 4.0, based on NASA imagery).

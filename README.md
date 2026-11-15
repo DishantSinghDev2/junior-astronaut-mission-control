@@ -119,3 +119,9 @@ See `assets/CREDITS.md` (also in the game: title menu, Credits). Summary: NASA D
 - **Rover**: the six wheels turn and leave tyre tracks; astronauts leave footprints.
 - **Crew jobs**: press the Crew button. Auto assign is on by default; or give each of the three crew members a job (clean panels, greenhouse, life support, shield, lab, rest).
 - **Loading**: 3D models are compressed to about 5.7 MB; the loader shows real progress and offers "Continue anyway" on slow connections.
+
+## Use of Super Intelligence (SI)
+SI-assisted project. Code, Hindi translation and docs: Claude (Anthropic). Voice-over and music: ElevenLabs, every audio file is tagged "SI-generated" in its metadata. The tutorial video has a visible SI watermark. No SI-generated images; no NASA logos, flags or mission identifiers in SI-generated content (they were painted out of the NASA 3D model textures). Details: `AI-DISCLOSURE.md`.
+
+## Real sun and NASA live data
+Sunrise, sunset and day length at each site come from the real Mars24 and Moon formulas for today's date (`js/space-env.js`). The Moon phase and Earth phase are real for today. The NASA panel shows live Mars 2020 raw images, EPIC Earth images and the SDO Sun, labelled Live or Archived (`js/nasa-live.js`).

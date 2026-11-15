@@ -1,3 +1,4 @@
+/* AI-assisted: this file was written with help from Claude (Anthropic), directed and reviewed by Team Pheonix. See AI-DISCLOSURE.md. */
 /*
   LUNAR OUTPOST — 3D world (three.js) with professional CC0 assets:
     Kenney "Space Kit" (base modules, rover, dishes, machines, rocks, craters, crystals, rocket parts)
@@ -18,7 +19,7 @@ window.World = (() => {
     "rock", "rock_largeA", "rock_largeB", "rocks_smallA", "meteor_detailed", "crater", "craterLarge", "rock_crystals",
     "rock_crystalsLargeA", "rocket_baseA", "rocket_fuelA", "rocket_topA", "rocket_finsA", "barrels", "desk_computer",
     "astronaut", "solar_panel",
-    "nasa_lm", "nasa_viking", "nasa_pers", "nasa_hdu1", "nasa_ingen", "nasa_dsn34",
+    "nasa_lm", "nasa_viking", "nasa_pers", "nasa_ingen", "nasa_dsn34",
     "desk_chair", "desk_computerScreen", "machine_generator", "machine_barrel", "machine_wirelessCable", "pipe_straight", "pipe_ring", "craft_cargoA", "craft_miner", "platform_small", "barrel", "stairs_short", "satelliteDish"];
   const PAL = {
     mars: {
@@ -46,7 +47,7 @@ window.World = (() => {
   let t = 0, holdProg = 0, holdId = null, actLatch = false, cine = null;
   // third-person orbit camera (yaw 0 = camera south of the player looking north)
   let camYaw = 0, camPitch = 0.42, camDist = 4.6, cY = 0, cP = 0.9, cD = 10.4, focusV = null, heroPos = null, heroLook = null, heroMode = false;
-  let skyDome, starPts, earthMesh, sunSprite, baseGround, overlayGround, bluePoint, amberPoint, scatter = [], occl = [];
+  let sunHalo = null, skyDome, starPts, earthMesh, sunSprite, baseGround, overlayGround, bluePoint, amberPoint, scatter = [], occl = [];
   const occRay = new THREE.Raycaster();
   const texCache = {};
   let vw = 800, vh = 600, parts = [];
@@ -274,9 +275,18 @@ window.World = (() => {
     if (!texCache[path]) { const t = new THREE.TextureLoader().load(path); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; if (srgb) t.encoding = THREE.sRGBEncoding; texCache[path] = t; }
     return texCache[path];
   }
-  const sunDirV = () => new THREE.Vector3(...pal.sunDir).normalize();
+  const curSun = new THREE.Vector3(0, 1, 0), sunState = { el: 40, light: 1, night: false, dusk: 0, earth: 0.5, waxing: true };
+  const sunDirV = () => curSun.clone();
+  const D2R = Math.PI / 180;
+  function setSunFromView(v) {
+    if (v.sunEl === undefined) { curSun.set(...pal.sunDir).normalize(); sunState.light = 1; sunState.dusk = v.dusk || 0; sunState.el = 40; return; }
+    const el = Math.max(v.sunEl, v.sunEl < 0 ? 0.04 * 57 : 2.5) * D2R, az = v.sunAz * D2R;   // never let the shadow light go below the horizon
+    curSun.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el)).normalize();
+    sunState.el = v.sunEl; sunState.light = v.sunLight; sunState.night = v.sunLight < 0.02; sunState.dusk = v.dusk || 0;
+    if (v.earthIllum !== undefined) { sunState.earth = v.earthIllum; sunState.waxing = !!v.earthWaning; }
+  }
   function buildEnv() {
-    [skyDome, starPts, earthMesh, sunSprite, bluePoint, amberPoint].forEach(o => o && scene.remove(o));
+    [skyDome, starPts, earthMesh, sunSprite, sunHalo, bluePoint, amberPoint].forEach(o => o && scene.remove(o));
     const c = document.createElement("canvas"); c.width = 8; c.height = 256; const g = c.getContext("2d");
     const gr = g.createLinearGradient(0, 0, 0, 256); pal.sky.forEach(([p, col]) => gr.addColorStop(p, col));
     g.fillStyle = gr; g.fillRect(0, 0, 8, 256);
@@ -290,14 +300,19 @@ window.World = (() => {
       const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
       starPts = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 1.7, sizeAttenuation: false, fog: false, depthWrite: false, transparent: true, opacity: 0.85 }));
       starPts.renderOrder = -9; scene.add(starPts);
-      earthMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 56, 36), new THREE.MeshBasicMaterial({ map: loadTex("assets/img/2k_earth.jpg", true), color: 0xd8dde8, fog: false, depthWrite: false }));
+      earthMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 56, 36), new THREE.ShaderMaterial({ uniforms: { map: { value: loadTex("assets/img/2k_earth.jpg", true) }, L: { value: new THREE.Vector3(0, 0.1, 1) } }, fog: false, depthWrite: false,
+        vertexShader: "varying vec2 vUv; varying vec3 vN; void main(){ vUv = uv; vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+        fragmentShader: "uniform sampler2D map; uniform vec3 L; varying vec2 vUv; varying vec3 vN; void main(){ vec3 c = texture2D(map, vUv).rgb; float d = dot(normalize(vN), normalize(L)); float lit = smoothstep(-0.02, 0.14, d); vec3 col = c * (0.035 + 0.965 * lit); gl_FragColor = vec4(col * 0.92, 1.0); }" }));
       earthMesh.scale.setScalar(11); earthMesh.renderOrder = -8; scene.add(earthMesh);
-    } else {
+    }
+    {
       const gc = document.createElement("canvas"); gc.width = gc.height = 128; const gg = gc.getContext("2d");
       const rg = gg.createRadialGradient(64, 64, 2, 64, 64, 64); rg.addColorStop(0, "rgba(255,246,225,1)"); rg.addColorStop(0.12, "rgba(255,230,190,.9)"); rg.addColorStop(1, "rgba(255,200,140,0)");
       gg.fillStyle = rg; gg.fillRect(0, 0, 128, 128);
       sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(gc), fog: false, depthWrite: false, blending: THREE.AdditiveBlending, transparent: true }));
       sunSprite.scale.setScalar(26); sunSprite.renderOrder = -8; scene.add(sunSprite);
+      sunHalo = null;
+      if (place === "mars") { const hc = document.createElement("canvas"); hc.width = hc.height = 128; const hg = hc.getContext("2d"), hr = hg.createRadialGradient(64, 64, 4, 64, 64, 64); hr.addColorStop(0, "rgba(150,190,255,.95)"); hr.addColorStop(0.35, "rgba(90,140,255,.45)"); hr.addColorStop(1, "rgba(60,100,255,0)"); hg.fillStyle = hr; hg.fillRect(0, 0, 128, 128); sunHalo = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(hc), fog: false, depthWrite: false, blending: THREE.AdditiveBlending, transparent: true, opacity: 0 })); sunHalo.renderOrder = -9; scene.add(sunHalo); }
     }
     // warm/cool accent lights around the base so it feels inhabited
     bluePoint = new THREE.PointLight(0x4aa8ff, 1.6, 7, 1.6); bluePoint.position.set(15.0, 1.4, 11.9); scene.add(bluePoint);
@@ -326,7 +341,14 @@ window.World = (() => {
       const d = new THREE.Vector3(Math.sin(0.62) * Math.cos(0.30), Math.sin(0.30), -Math.cos(0.62) * Math.cos(0.30)).multiplyScalar(86);
       earthMesh.position.copy(p).add(d); earthMesh.rotation.y = 0.9 + t * 0.004;
     }
-    if (sunSprite) sunSprite.position.copy(p).add(sunDirV().multiplyScalar(92));
+    if (sunSprite) {
+      sunSprite.position.copy(p).add(sunDirV().multiplyScalar(92)); const up = sunState.el > -2, ang = place === "mars" ? 0.66 : 1; sunSprite.visible = up; sunSprite.scale.setScalar((place === "moon" ? 15 : 22) * ang * (1 + Math.max(0, 1 - sunState.el / 12) * 0.5));
+      if (sunHalo) { sunHalo.visible = up && place === "mars"; sunHalo.position.copy(sunSprite.position); const k = Math.max(0, Math.min(1, 1 - sunState.el / 14)); sunHalo.material.opacity = 0.15 + 0.7 * k; sunHalo.scale.setScalar(46 + 40 * k); }
+    }
+    { const d = sunState.dusk, n = sunState.night ? 1 : 0, c = skyDome.material.color;
+      if (place === "mars") { c.setRGB(1 - d * 0.45, 1 - d * 0.4, 1 - d * 0.05).multiplyScalar(1 - 0.72 * Math.min(1, d * 1.2) * 0.9 - 0.2 * n); scene.fog.color.setHex(pal.fog).lerp(new THREE.Color(0x4c6290), Math.min(1, d * 1.1)).multiplyScalar(1 - 0.5 * n); }
+      else { c.setRGB(1, 1, 1); } }
+    if (earthMesh && earthMesh.material.uniforms) { const a = Math.acos(Math.max(-1, Math.min(1, 2 * sunState.earth - 1))); earthMesh.material.uniforms.L.value.set((sunState.waxing ? 1 : -1) * Math.sin(a), 0.12, Math.cos(a)); }
   }
 
   function paintGround(seed) {
@@ -721,14 +743,17 @@ window.World = (() => {
     const sd = sunDirV();
     sun.position.copy(target).addScaledVector(sd, 24); sun.target.position.copy(target);
     Object.assign(sun.shadow.camera, { left: -reach, right: reach, top: reach, bottom: -reach, far: 60 }); sun.shadow.camera.updateProjectionMatrix();
-    const dusk = (v && v.dusk) || 0;
-    sun.intensity = pal.sunI * (1 - dusk * 0.7); hemi.intensity = pal.hemiI * (1 - dusk * 0.3);
-    sun.color.setHex(v && v.storm ? 0xffa060 : pal.sunColor).lerp(new THREE.Color(0x7fa0ff), dusk * 0.6);
+    const dusk = sunState.dusk, lf = sunState.light, low = Math.max(0, Math.min(1, 1 - sunState.el / 16));
+    sun.intensity = pal.sunI * lf * (v && v.storm ? 0.7 : 1); hemi.intensity = pal.hemiI * (0.3 + 0.7 * lf) + (sunState.night ? (place === "moon" ? 0.05 + 0.2 * sunState.earth : 0.07) : 0);
+    sun.color.setHex(v && v.storm ? 0xffa060 : pal.sunColor);
+    if (place === "mars") sun.color.lerp(new THREE.Color(0x8fb6ff), low * 0.75);   // Mars sunsets are blue
+    else sun.color.lerp(new THREE.Color(0xffd8b0), low * 0.35);
   }
   function draw() {
     if (!renderer || !P) return;
     const dt = Math.min(0.05, clock.getDelta());
     const v = handlers.view();
+    setSunFromView(v);
     const outP = !BaseKit.roomAt(base, P.x, P.y) && !P.inRover && !heroMode;
     playerRig.stormK = outP ? stormI : 0;
     placeRig(playerRig, P.x, P.y, P.face, P.animOverride || (heroMode ? ((t % 14) < 2.6 && t > 3 ? "Wave" : "Idle") : P.z > 0.05 ? "Wave" : holdId ? "Interact" : P.moving ? "Run" : "Idle"), dt, P.z || 0);

@@ -1,3 +1,4 @@
+# AI-assisted: written with help from Claude (Anthropic), directed and reviewed by Team Pheonix. See AI-DISCLOSURE.md.
 #!/usr/bin/env python3
 """
 Save REAL NASA DONKI CME data into js/donki-archive.js, so the game still has

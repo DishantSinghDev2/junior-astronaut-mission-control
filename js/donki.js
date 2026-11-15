@@ -1,3 +1,4 @@
+/* AI-assisted: this file was written with help from Claude (Anthropic), directed and reviewed by Team Pheonix. See AI-DISCLOSURE.md. */
 /*
   NASA DONKI (Space Weather Database Of Notifications, Knowledge, Information)
   We use real Coronal Mass Ejections (CMEs) to create the game's solar storms:

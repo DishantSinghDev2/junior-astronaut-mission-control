@@ -1,3 +1,4 @@
+/* AI-assisted: this file was written with help from Claude (Anthropic), directed and reviewed by Team Pheonix. See AI-DISCLOSURE.md. */
 /* Language system. Screens are written in English; this module translates what is shown, using a phrase
    dictionary per language (js/lang-*.js). Add a new language by adding a file that calls I18N.register("xx", {...}, [[/regex/, fn]]). */
 window.I18N = (function () {
