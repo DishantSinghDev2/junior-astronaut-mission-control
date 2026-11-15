@@ -15,7 +15,8 @@
   const $ = s => document.querySelector(s);
   const app = $("#app"), gameEl = $("#game"), modal = $("#modal"), mbox = modal.querySelector(".modal-box"), hud = $("#hud");
   const I = window.icon;
-  const DAY_LEN = 90, PASSIVE = 60 / DAY_LEN, DAYS = C.MISSION_DAYS;
+  const DAY_LEN = 90, PASSIVE = 60 / DAY_LEN, LENGTHS = { short: 8, standard: 14, long: 24 };
+  let DAYS = 14;
   const R = {
     lifeDrain: 0.32, recycle: 0.24, leak: 0.7, hungry: 0.25, foodDrain: 0.22, grow: 1 / 30, harvest: 26,
     load: 0.55, wear: 0.06, boostCost: 8, boostGain: 10, purifyCost: 7, purifyGain: 9,
@@ -32,8 +33,9 @@
   const shots = {};
   // saved progress (this browser only)
   const PROFILE_KEY = "lo-profile-v1";
-  const profile = { xp: 0, stars: 0, missions: 0, science: 0, lastSite: null, q: "high", suit: 0xff6b35, name: "Commander", tutorDone: false };
+  const profile = { xp: 0, stars: 0, missions: 0, science: 0, lastSite: null, q: "high", suit: 0xff6b35, name: "Commander", tutorDone: false, len: "standard" };
   try { Object.assign(profile, JSON.parse(localStorage.getItem(PROFILE_KEY) || "{}")); } catch (e) {}
+  DAYS = LENGTHS[profile.len] || 14;
   const saveProfile = () => { try { localStorage.setItem(PROFILE_KEY, JSON.stringify(profile)); } catch (e) {} };
   let S = null, dest = "moon", site = null, last = 0, hudT = 0, mpT = 0, lobbyOn = false, toastTimer = null, introSeen = false, cineRun = null;
 
@@ -117,6 +119,7 @@
         <div class="t-card"><div class="t-avatar">${I("user")}</div>
           <div><b>${esc(profile.name)}</b><small>Level ${lvl}</small><div class="xp"><i style="width:${xp}%"></i></div><div class="xp-t">${xp} / 100 XP</div></div></div>
         <nav class="t-menu" aria-label="Main menu">
+          ${loadRun() ? `<button class="t-item cont" data-go="resume">${I("rocket")} Continue · ${cap(D.places[loadRun().placeId].dayWord)} ${loadRun().day} of ${loadRun().days}</button>` : ""}
           <button class="t-item primary" data-go="start">${I("play")} Start mission</button>
           <button class="t-item" data-go="sunwatch">${I("sun")} Sun Watch</button>
           <button class="t-item" data-go="howto">${I("book-open")} How to play</button>
@@ -211,7 +214,7 @@
   });
   MP.on("left", id => { World.remote.remove(id); toast("A teammate left the squad.", 2500); });
   MP.on("closed", msg => { World.remote.clear(); lobbyRefresh(); toast(esc(msg), 4500); if (lobbyOn) lobby(); renderSquad(); });
-  MP.on("start", m => { const pl = D.places[m.dest]; if (!pl) return; dest = m.dest; site = pl.sites[m.site] || pl.sites[0]; closeModal(); startMission({ storms: m.storms }); });
+  MP.on("start", m => { const pl = D.places[m.dest]; if (!pl) return; dest = m.dest; site = pl.sites[m.site] || pl.sites[0]; closeModal(); startMission({ storms: m.storms, days: m.days }); });
   document.addEventListener("keydown", e => {
     if (MP.role === "off" || !inMission() || S.modalOpen || (e.target && /INPUT|TEXTAREA/.test(e.target.tagName))) return;
     const k = "1234".indexOf(e.key); if (k >= 0) saySend(k);
@@ -233,6 +236,7 @@
       <button class="btn-secondary sm back-btn" data-go="home">Back</button>
       <h1>Where will your crew live?</h1>
       <div class="dests">${card("moon")}${card("mars")}</div>
+      <div class="len-row" role="radiogroup" aria-label="Mission length"><span>Mission length</span>${[["short", "Short"], ["standard", "Standard"], ["long", "Expedition"]].map(([k, n]) => `<button class="len${profile.len === k ? " on" : ""}" role="radio" data-len="${k}"><b>${n}</b><small>${LENGTHS[k]} ${D.places[dest].dayWord}s · about ${Math.round(LENGTHS[k] * 1.6)} min</small></button>`).join("")}</div>
       <div class="next-row"><button class="btn-primary lg" data-go="globe">Choose landing site ${I("arrow-right")}</button></div>
     </section>`, { world: true, place: dest });
   }
@@ -411,9 +415,10 @@
     closeModal(); $("#popup").hidden = true; $("#cine").hidden = true;
     if (!site) site = D.places[dest].sites[0];
     const place = D.places[dest], mods = site.mods || {};
+    if (opts && opts.days) DAYS = opts.days;
     let storms = {};
     if (opts && opts.storms) storms = opts.storms;
-    else { const picked = Donki.pickStorms(C.STORMS_PER_MISSION); pickStormDays(picked.length).forEach((d, i) => (storms[d] = picked[i])); }
+    else { const picked = Donki.pickStorms(Math.max(2, Math.round(DAYS / 5))); pickStormDays(picked.length).forEach((d, i) => (storms[d] = picked[i])); }
     S = {
       placeId: dest, place, site, mods, day: 1, t: 0,
       life: 80, power: 80, shield: 75, food: 70, growth: 0.45,
@@ -424,15 +429,22 @@
       solarMul: 1, solarForever: 1, wearMul: 1, speedMul: 1,
       storms, storm: null, stormAt: 0, stormStarted: false, linkDay: 1, blackout: 0,
       evAt: 0, evDone: false, pending: null, ask: null, modalOpen: false,
+      up: { dust: 1, solar: 1, life: 1, grow: 1, wear: 1, rover: 1, warn: 0 }, spent: 0, lv: {}, chapter: -1,
       disc: {}, forecast: null, tasks: [], guideIdx: null, dayStart: null, dayLog: [], decisions: [], hist: [], sampleT: 0,
       stats: { cleaned: 0, fixed: 0, harvested: 0, rocks: 0, stormsFaced: [], asked: 0, lateWarnings: 0, tasksDone: 0, driven: 0, ice: 0 },
       delayMin: dest === "mars" ? marsDelay() : null, over: false, dusk: 0
     };
+    if (opts && opts.resume) {
+      const r = opts.resume;
+      ["day", "life", "power", "shield", "food", "growth", "science", "spent", "up", "lv", "stats", "decisions", "hist", "partTaken", "wearMul", "solarForever", "linkDay", "relayUntil", "dust", "forecast", "delayMin"].forEach(k => { if (r[k] !== undefined && r[k] !== null) S[k] = r[k]; });
+      S.used = new Set(r.used || []); S.disc = { weather: true, ice: true, relay: true, lander: true }; S.resumed = true; profile.tutorDone = true;
+    }
     app.hidden = true; gameEl.hidden = false; document.body.classList.add("playing"); document.body.classList.remove("cine", "menu", "dim");
     World.reset(dest, site); World.setCine(null); World.resize();
     buildHud();
-    if (MP.role === "host" && !(opts && opts.storms)) MP.start({ dest, site: D.places[dest].sites.indexOf(site), storms });
+    if (MP.role === "host" && !(opts && opts.storms)) MP.start({ dest, site: D.places[dest].sites.indexOf(site), storms, days: DAYS });
     syncRemotes();
+    if (opts && opts.resume) { Sound.music("explore"); beginDrop(); landNow(); endDrop(); last = performance.now(); return; }
     Sound.music("drop");
     beginDrop();
     last = performance.now();
@@ -488,8 +500,23 @@
     S.drop = null; const el = $("#drop"); if (el) el.remove();
     World.setCine(null);
     hud.style.visibility = "";
-    Sound.music("explore"); startDay(); toast(`Touchdown at ${esc(S.site.name)}! Your ${S.place.dayWord} 1 begins.`, 4500);
+    Sound.music("explore"); startDay(); toast(S.resumed ? `Welcome back, ${esc(profile.name)}! ${cap(S.place.dayWord)} ${S.day} of ${DAYS}.` : `Touchdown at ${esc(S.site.name)}! Your ${S.place.dayWord} 1 begins.`, 4500);
     last = performance.now();
+  }
+  /* ---------- auto-save so a long mission can be continued ---------- */
+  const RUN_KEY = "lo-run-v1";
+  function saveRun() {
+    try {
+      if (!S || S.over || S.intro || S.attract || MP.role !== "off") return;
+      localStorage.setItem(RUN_KEY, JSON.stringify({ placeId: S.placeId, site: D.places[S.placeId].sites.indexOf(S.site), days: DAYS, day: S.day, life: S.life, power: S.power, shield: S.shield, food: S.food, growth: S.growth, science: S.science, spent: S.spent, up: S.up, lv: S.lv, storms: S.storms, stats: S.stats, decisions: S.decisions, hist: S.hist, used: [...(S.used || [])], partTaken: S.partTaken, wearMul: S.wearMul, solarForever: S.solarForever, linkDay: S.linkDay, relayUntil: S.relayUntil, dust: S.dust, forecast: S.forecast, delayMin: S.delayMin }));
+    } catch (e) {}
+  }
+  const loadRun = () => { try { return JSON.parse(localStorage.getItem(RUN_KEY) || "null"); } catch (e) { return null; } };
+  const clearRun = () => { try { localStorage.removeItem(RUN_KEY); } catch (e) {} };
+  function resumeRun() {
+    const r = loadRun(); if (!r || !D.places[r.placeId]) return;
+    dest = r.placeId; site = D.places[dest].sites[r.site] || D.places[dest].sites[0];
+    startMission({ storms: r.storms, days: r.days, resume: r });
   }
   function stopGame() {
     if (S) { S.over = true; if (S.intro) ["t1", "t2", "t3", "t4"].forEach(k => clearTimeout(S[k])); }
@@ -529,6 +556,8 @@
     else {
       const exp = ["weather", "relay", "ice"].concat(S.partTaken ? [] : ["lander"]);
       ids = [rand(["clean", "harvest"]), rand(exp), rand(["study", "send"])];
+      const want = S.day >= 14 ? 5 : S.day >= 6 ? 4 : 3, rest = ["clean", "harvest", "study", "send", "weather", "relay", "ice"].filter(x => !ids.includes(x));
+      while (ids.length < want && rest.length) ids.push(rest.splice(Math.floor(Math.random() * rest.length), 1)[0]);
     }
     S.tasks = ids.map(id => ({ id, n: 0, need: TASKS[id].need, done: false }));
     if (ids.includes("relay")) S.relayBroken = true;
@@ -560,10 +589,20 @@
     S.stormAt = 8 + Math.random() * 15; S.stormStarted = false;
     S.dayStart = { life: S.life, power: S.power, shield: S.shield, food: S.food, science: S.science };
     S.dayLog = [];
+    chapterBanner();
     planTasks();
+    saveRun();
     spawnSamples(2 + (S.mods.samples || 0));
     if (S.day === 1) toast("Welcome, Commander! Follow the yellow arrow to your first task.", 6000);
     else { toast(`${cap(S.place.dayWord)} ${S.day} begins. New tasks are on your list.`); Sound.voice("vo-morning"); }
+  }
+  const CHAPTERS = [["Chapter 1", "Touchdown", "Learn the base. Keep every meter above zero."], ["Chapter 2", "Settling in", "Routines are working. Watch the dust and the daily tasks."], ["Chapter 3", "Storm season", "More solar storms are coming. Stay close to the shelter."], ["Chapter 4", "The long haul", "Everything wears out. Spend your science on upgrades."], ["Final stretch", "Hold on!", "The last sols. Bring the whole crew home safe."]];
+  function chapterBanner() {
+    const f = (S.day - 1) / Math.max(1, DAYS - 1), idx = S.day === DAYS && DAYS > 4 ? 4 : S.day === 1 ? 0 : f < 0.34 ? 1 : f < 0.62 ? 2 : 3;
+    if (S.chapter === idx) return; S.chapter = idx;
+    const c = CHAPTERS[idx], el = document.createElement("div"); el.className = "chapter";
+    el.innerHTML = `<small>${c[0]} · ${cap(S.place.dayWord)} ${S.day} of ${DAYS}</small><b>${c[1]}</b><span>${c[2]}</span>`;
+    gameEl.appendChild(el); setTimeout(() => el.remove(), 4800);
   }
   function spawnSamples(n) {
     let tries = 0;
@@ -578,7 +617,7 @@
   /* =========================================================
      SIMULATION
      ========================================================= */
-  const solarNow = () => S.place.solar * (S.mods.solar || 1) * (1 - 0.7 * (S.dust.reduce((a, b) => a + b, 0) / S.dust.length)) * S.solarMul * S.solarForever;
+  const solarNow = () => S.place.solar * (S.mods.solar || 1) * S.up.solar * (1 - 0.7 * (S.dust.reduce((a, b) => a + b, 0) / S.dust.length)) * S.solarMul * S.solarForever;
 
   function update(dt) {
     if (S.drop) return dropTick(dt);
@@ -598,15 +637,16 @@
     const rv = World.rover, pad = World.obj("pad");
     S.charging = !World.player.inRover && rv.battery < 100 && Math.hypot(rv.x - pad.x, rv.y - pad.y) < 90 && S.power > 2;
     if (S.charging) { rv.battery = Math.min(100, rv.battery + 9 * dt); S.power -= 1.0 * dt; }
-    let dl = -R.lifeDrain;
+    const df = 1 + 0.03 * (S.day - 1);   // life gets a little harder every day
+    let dl = -R.lifeDrain * df * S.up.life;
     if (!S.broken && powered) dl += R.recycle;
     if (S.leakAt) dl -= R.leak;
     if (S.food <= 0) dl -= R.hungry;
     S.life += dl * pd;
-    S.food -= R.foodDrain * pd;
-    if (powered) S.growth = Math.min(1, S.growth + R.grow * pd);
-    S.shield -= R.wear * S.wearMul * (powered ? 1 : 2) * pd;
-    S.dust = S.dust.map(d => Math.min(1, d + S.place.dustRate * (S.mods.dust || 1) * pd * (0.6 + Math.random() * 0.8)));
+    S.food -= R.foodDrain * pd * df;
+    if (powered) S.growth = Math.min(1, S.growth + R.grow * S.up.grow * pd);
+    S.shield -= R.wear * S.wearMul * S.up.wear * df * (powered ? 1 : 2) * pd;
+    S.dust = S.dust.map(d => Math.min(1, d + S.place.dustRate * (S.mods.dust || 1) * S.up.dust * pd * (0.6 + Math.random() * 0.8)));
     S.sending = Math.max(0, S.sending - dt); S.boosting = Math.max(0, S.boosting - dt);
     S.dusk = S.t > DAY_LEN * 0.82 ? Math.min(1, (S.t - DAY_LEN * 0.82) / (DAY_LEN * 0.18)) : 0;
 
@@ -638,7 +678,12 @@
     if (S.t >= DAY_LEN && !S.storm && !S.pending && !S.modalOpen && (!S.storms[S.day] || S.stormStarted)) endDay();
   }
 
-  document.addEventListener("click", e => { const b = e.target.closest && e.target.closest("[data-say]"); if (b) saySend(+b.dataset.say); });
+  document.addEventListener("click", e => {
+    const t = e.target.closest ? e.target : null; if (!t) return;
+    const b = t.closest("[data-say]"); if (b) return saySend(+b.dataset.say);
+    const u = t.closest("[data-buy]"); if (u) return buy(u.dataset.buy);
+    const l = t.closest("[data-len]"); if (l) { profile.len = l.dataset.len; DAYS = LENGTHS[profile.len]; saveProfile(); document.querySelectorAll("[data-len]").forEach(x => x.classList.toggle("on", x === l)); }
+  });
   function loop(ts) {
     const dt = Math.min(0.05, (ts - last) / 1000 || 0);
     last = ts;
@@ -751,6 +796,7 @@
     let secs = clamp(Math.round(hours * 0.5), 14, 45);
     const late = S.linkDay < S.day - 1 && S.relayUntil < S.day;
     if (late) { secs = Math.max(9, Math.round(secs * 0.5)); S.stats.lateWarnings++; }
+    secs += S.up.warn;
     if (S.forecast && S.forecast.day === S.day) { secs += 8; setTimeout(() => S && toast("Your Weather Station forecast gave you <b class=\"yellow\">+8 s</b> extra warning!", 3500), 1800); }
     const dmg = [0, 30, 45, 60][st.level] + (st.hasSep ? 15 : 0);
     S.storm = { st, phase: "coming", eta: secs, total: secs, hours, late, dmg, mul: 1, taken: 0, where: {} };
@@ -884,7 +930,39 @@
       <div class="cont-row"><button class="btn-primary" data-act="next-day">${S.day >= DAYS ? "See results" : "Continue"}</button></div>
     </div>`);
   }
-  function nextDay() { closeModal(); if (S.day >= DAYS) return results(true); S.day++; startDay(); }
+  const UPG = [
+    { id: "dust", icon: "sparkles", name: "Dust-repellent coating", desc: "Panels get dusty 40% slower.", cost: 25, max: 2, fx: () => (S.up.dust *= 0.6) },
+    { id: "solar", icon: "zap", name: "High-efficiency panels", desc: "+20% solar power.", cost: 35, max: 2, fx: () => (S.up.solar *= 1.2) },
+    { id: "life", icon: "droplets", name: "Water recycler Mk II", desc: "Life Support drains 25% slower.", cost: 30, max: 2, fx: () => (S.up.life *= 0.75) },
+    { id: "grow", icon: "sprout", name: "Hydroponic racks", desc: "Plants grow 35% faster.", cost: 25, max: 2, fx: () => (S.up.grow *= 1.35) },
+    { id: "wear", icon: "shield", name: "Radiation plating", desc: "Shielding wears 30% slower.", cost: 40, max: 2, fx: () => (S.up.wear *= 0.7) },
+    { id: "rover", icon: "car-front", name: "Rover power pack", desc: "The rover uses 40% less battery.", cost: 25, max: 2, fx: () => (S.up.rover *= 0.6) },
+    { id: "warn", icon: "radio-tower", name: "Storm radar array", desc: "+8 seconds of storm warning.", cost: 30, max: 2, fx: () => (S.up.warn += 8) },
+    { id: "kit", icon: "heart-pulse", name: "Emergency supplies", desc: "+20 Life Support and +20 Greenhouse right now.", cost: 20, max: 99, fx: () => { S.life = Math.min(100, S.life + 20); S.food = Math.min(100, S.food + 20); } }
+  ];
+  const wallet = () => Math.floor(S.science - S.spent);
+  const upCost = u => Math.round(u.cost * Math.pow(1.6, S.lv[u.id] || 0));
+  function shop(from) {
+    S.shopFrom = from;
+    const w = wallet();
+    openModal(`<div class="shop"><h1>Research and upgrades</h1>
+      <p class="lead">${I("star")} <b class="yellow">${w}</b> science to spend. Upgrades last for the whole mission. Score is not reduced.</p>
+      <div class="up-grid">${UPG.map(u => {
+        const lv = S.lv[u.id] || 0, c = upCost(u), maxed = lv >= u.max, ok = !maxed && c <= w;
+        return `<button class="up-card${maxed ? " maxed" : ""}" data-buy="${u.id}" ${ok ? "" : "disabled"}>
+          <span class="up-ic">${I(u.icon)}</span><b>${u.name}</b><span class="up-d">${u.desc}</span>
+          <span class="up-foot">${u.max < 99 ? `<i class="pips">${Array.from({ length: u.max }, (_, k) => `<s class="${k < lv ? "on" : ""}"></s>`).join("")}</i>` : ""}<em>${maxed ? "MAX" : c + " ★"}</em></span></button>`;
+      }).join("")}</div>
+      <div class="cont-row"><button class="btn-primary" data-act="shop-done">${from === "day" ? "Continue to the next " + S.place.dayWord : "Done"}</button></div></div>`);
+  }
+  function buy(id) {
+    const u = UPG.find(x => x.id === id); if (!u || !S) return;
+    const lv = S.lv[id] || 0, c = upCost(u); if (lv >= u.max || c > wallet()) return;
+    S.spent += c; S.lv[id] = lv + 1; u.fx(); Sound.sfx("task");
+    const sc = $(".shop"); const keep = sc ? sc.scrollTop : 0; shop(S.shopFrom); toast(`Installed: <b class="yellow">${u.name}</b>`, 2500);
+  }
+  function advanceDay() { S.day++; startDay(); }
+  function nextDay() { closeModal(); if (S.day >= DAYS) return results(true); if (wallet() >= 20) return shop("day"); advanceDay(); }
   function fail(reason) { if (S.over) return; S.failReason = reason; results(false); }
 
   function chart() {
@@ -898,10 +976,10 @@
       <div class="legend"><span><i style="background:#7cc4ff"></i>Life Support</span><span><i style="background:#ffd54a"></i>Power</span><span><i style="background:#ff6b35"></i>Shielding</span></div>`;
   }
   function results(success) {
-    S.over = true; closeModal();
+    S.over = true; closeModal(); clearRun();
     Sound.music(null); Sound.voice(success ? "vo-win" : "vo-lose");
     const L = Math.round(S.life), P = Math.round(S.power), Sh = Math.round(S.shield);
-    const crit = [success, success && S.science >= 60, success && Math.min(L, P, Sh) >= 40];
+    const crit = [success, success && S.science >= Math.round(60 * DAYS / 8), success && Math.min(L, P, Sh) >= 40];
     const stars = crit.filter(Boolean).length;
     const final = S.science * 3 + L + P + Sh + (success ? 100 : 0) + S.stats.tasksDone * 10;
     const st = S.stats;
@@ -934,7 +1012,7 @@
           ${chart()}
           <ul class="decisions" style="margin-top:14px">
             <li>${crit[0] ? "★" : "☆"} Keep the crew safe for ${DAYS} ${S.place.dayWord}s</li>
-            <li>${crit[1] ? "★" : "☆"} Send 60+ science to Earth</li>
+            <li>${crit[1] ? "★" : "☆"} Send ${Math.round(60 * DAYS / 8)}+ science to Earth</li>
             <li>${crit[2] ? "★" : "☆"} End with all three meters at 40+</li></ul></div>
         <div class="card">${ledger}<h2>Key decisions</h2>
           <ul class="decisions">${S.decisions.slice(-8).map(d => `<li>${esc(cap(d))}</li>`).join("") || "<li>No decisions this time.</li>"}</ul>
@@ -1077,6 +1155,7 @@
   function pauseMenu() {
     openModal(`<div class="pause"><h2>Paused</h2>
       <button class="btn-primary" data-act="resume">Resume</button>
+      <button class="btn-secondary" data-act="shop">Research and upgrades</button>
       <button class="btn-secondary" data-act="sunwatch">Sun Watch (NASA data)</button>
       <button class="btn-secondary" data-act="controls">Controls</button>
       <button class="btn-secondary" data-act="quit">Quit to main menu</button></div>`);
@@ -1166,7 +1245,7 @@
     if (t.dataset.opt !== undefined && S && S.pending) { S.pending.sel = +t.dataset.opt; Sound.sfx("click"); return showChoices(); }
     const go = {
       home, dest: destination, howto: () => briefing("howto"), video: videoModal, sources, sunwatch: sunWatchModal,
-      start: () => (introSeen ? lobby() : story()), lobby, story,
+      start: () => (introSeen ? lobby() : story()), resume: resumeRun, lobby, story,
       globe: () => globe(0),
       land: async () => { Sound.sfx("engine"); t.disabled = true; await Promise.race([Globe.landAnim(), wait(2500)]); briefing("start"); }
     }[t.dataset.go];
@@ -1189,6 +1268,8 @@
       case "lb-copy": try { navigator.clipboard.writeText(MP.code); } catch (e) {} { const b = $("#lb-codebig"); if (b) b.classList.add("copied"); } return;
       case "lb-leave": MP.leave(); World.remote.clear(); return lobby();
       case "drop-skip": if (S && S.drop) endDrop(); return;
+      case "shop": return shop("pause");
+      case "shop-done": closeModal(); if (S && S.shopFrom === "day") { S.shopFrom = null; advanceDay(); } return;
       case "suit": return suitModal();
       case "suit-save": return suitSave();
       case "coach-skip": profile.tutorDone = true; saveProfile(); { const e = $("#coach"); if (e) e.hidden = true; } return;
@@ -1237,6 +1318,7 @@
       stormSoon: !!(S.storm && S.storm.phase === "coming"), speedMul: S.speedMul, lamps: S.power > 0, charging: S.charging,
       weatherBroken: S.weatherBroken, relayBroken: S.relayBroken, partTaken: S.partTaken, dusk: S.dusk,
       haze: S.placeId === "mars" && S.solarMul < 1 ? 1 - S.solarMul : 0,
+      roverDrain: S.up ? S.up.rover : 1,
       guide: S.intro || !S.tasks ? null : guideTarget()
     }), prompt, done, hold, pickup,
     jump: ev => {

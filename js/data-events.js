@@ -239,6 +239,123 @@ window.GAME_DATA = {
         { label: "Don't plant today", desc: "No water or power used.", fx: { food: -12 },
           result: "No new plants today. The food store gets lower." }
       ]
+    },
+    {
+      id: "school_call", place: "both", cat: "science", tip: 0,
+      title: "A school wants to talk to you!",
+      text: "Students on Earth ask for a quick radio call. It would be a great chance to share your science, but the radio uses power.",
+      fact: "Astronauts on the Space Station talk to students by ham radio through the ARISS program.",
+      source: "NASA / ARISS",
+      choices: [
+        { label: "Take the call", desc: "Spend power, gain science and cheer.", fx: { power: -8, science: 12 },
+          result: "The students asked if you can see stars in daytime. You answered every question!" },
+        { label: "Send a recorded message", desc: "Cheaper, but less fun.", fx: { power: -2, science: 4 },
+          result: "You recorded a short video for the class. They loved it." }
+      ]
+    },
+    {
+      id: "bumper_crop", place: "both", cat: "food", tip: 0,
+      title: "The plants grew fast!",
+      text: "A bright patch of red lettuce is ready early. Harvest it now, or let the plants keep growing?",
+      fact: "In 2015 astronauts on the Space Station ate lettuce they grew in space for the first time.",
+      source: "NASA Veggie experiment",
+      choices: [
+        { label: "Harvest it now", desc: "Fresh food for everyone.", fx: { food: 16 },
+          result: "Crunchy red lettuce for dinner. Everyone is happy." },
+        { label: "Let it grow", desc: "More food later, none today.", fx: { food: -4, power: -3 },
+          result: "You gave the plants extra light. They will be bigger tomorrow." }
+      ]
+    },
+    {
+      id: "bone_loss", place: "both", cat: "life", tip: 0,
+      title: "The crew feels weak",
+      text: "Low gravity makes bones and muscles weaker. The crew needs a longer workout.",
+      fact: "Astronauts on the Space Station exercise about two hours every day to keep their bones and muscles strong.",
+      source: "NASA Human Research Program",
+      choices: [
+        { label: "Long workout for everyone", desc: "Uses power, keeps the crew healthy.", fx: { power: -9, life: 6 },
+          result: "Treadmills and resistance bands worked. The crew feels strong." },
+        { label: "Short workout", desc: "Saves power, helps a little.", fx: { power: -3, life: 1 },
+          result: "A short workout is better than none, but tired legs remain." }
+      ]
+    },
+    {
+      id: "printer_broke", place: "both", cat: "power", tip: 0,
+      title: "The 3D printer jammed",
+      text: "You need a new part, and the 3D printer stopped half way through printing it.",
+      fact: "In 2014 NASA e-mailed a design to the Space Station, and its 3D printer made a wrench in space.",
+      source: "NASA 3D Printing in Zero-G",
+      choices: [
+        { label: "Ask Earth for a new design", desc: "Costs a little science, fixes it.", fx: { science: -6, power: -3 },
+          result: "Earth sent a new file. The printer finished the part." },
+        { label: "Fix the printer yourself", desc: "Uses power while you test.", fx: { power: -10 },
+          result: "After three tries the printer works again." }
+      ]
+    },
+    {
+      id: "comms_blackout", place: "mars", cat: "science", tip: 1,
+      title: "The Sun is blocking the radio!",
+      text: "Mars is passing behind the Sun, so signals to Earth are noisy. This happens about every two years.",
+      fact: "When Mars is on the other side of the Sun, NASA stops sending commands to its rovers for about two weeks.",
+      source: "NASA Mars solar conjunction",
+      choices: [
+        { label: "Send data anyway", desc: "Some of it may be lost.", fx: { science: -5, power: -6 },
+          result: "Part of the data arrived with errors. Earth asked you to resend it." },
+        { label: "Wait for the signal to clear", desc: "Save power, keep the data safe.", fx: { power: 2 },
+          result: "You stored the data and waited. Nothing lost." }
+      ]
+    },
+    {
+      id: "dust_suits", place: "moon", cat: "life", tip: 0,
+      title: "Moon dust is everywhere!",
+      text: "Sharp dust clings to suits and gets inside the airlock. It can scratch equipment and irritate lungs.",
+      fact: "Apollo astronauts found that Moon dust stuck to everything and wore through suit layers.",
+      source: "NASA Apollo missions",
+      choices: [
+        { label: "Brush and vacuum the suits", desc: "Uses power, keeps air clean.", fx: { power: -6, life: 5 },
+          result: "Dust is gone from the airlock. The air smells fresh again." },
+        { label: "Ignore it today", desc: "Save power, but the air gets dusty.", fx: { life: -12 },
+          result: "Dust floated around the cabin. Breathing got harder." }
+      ]
+    },
+    {
+      id: "water_ice", place: "both", cat: "science", tip: 0,
+      title: "Scanner found water ice!",
+      text: "Your scanner shows a layer of water ice close to the base. Use it, or study it first?",
+      fact: "In 2009 NASA's LCROSS probe found water ice in a crater at the Moon's south pole. In 2008 Phoenix found ice under Mars soil.",
+      source: "NASA LCROSS and Phoenix",
+      choices: [
+        { label: "Mine it for water", desc: "Costs power, fills the tanks.", fx: { power: -9, life: 14 },
+          result: "Ice melted in the tanks. Life Support has water again." },
+        { label: "Study it first", desc: "Gain science, no water today.", fx: { science: 9 },
+          result: "The ice layer is thick and clean. Earth is excited about your data." }
+      ]
+    },
+    {
+      id: "crack_window", place: "both", cat: "shield", tip: 0,
+      title: "A small crack in the window",
+      text: "A tiny crack appeared in the dome window. It is not leaking, but it makes the shield weaker.",
+      fact: "Spacecraft windows have several layers of glass, because tiny space dust can chip them.",
+      source: "NASA ISS Cupola",
+      choices: [
+        { label: "Seal it with resin", desc: "Uses power for the heater.", fx: { power: -7, shield: 8 },
+          result: "The resin hardened and the crack stopped growing." },
+        { label: "Cover it with a metal plate", desc: "Quick, but you lose the view.", fx: { shield: 4 },
+          result: "A plate now covers the crack. Safe, if a little dark." }
+      ]
+    },
+    {
+      id: "good_news", place: "both", cat: "science", tip: 0,
+      title: "Good news from Earth!",
+      text: "Mission Control says your science data helped plan the next big mission. The crew is excited.",
+      fact: "Data from Moon and Mars outposts will help NASA plan Artemis and future Mars missions.",
+      source: "NASA Artemis program",
+      choices: [
+        { label: "Celebrate with a team dinner", desc: "Uses food, lifts spirits.", fx: { food: -6, life: 8 },
+          result: "A small party made everybody smile." },
+        { label: "Keep working", desc: "Use the good mood to do more science.", fx: { science: 8 },
+          result: "Everyone worked with extra energy." }
+      ]
     }
   ],
 

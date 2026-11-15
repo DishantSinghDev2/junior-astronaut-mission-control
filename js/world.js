@@ -527,7 +527,7 @@ window.World = (() => {
         if (!steerMove(rover, Math.cos(rover.a), Math.sin(rover.a), sp * dt, 34, "rover")) rover.a += 0.04;
         const moved = Math.hypot(rover.x - bx, rover.y - by);
         rover.speed = moved / dt; if (moved < 0.2 && P.target) P.target = null;
-        rover.battery = Math.max(0, rover.battery - moved * 0.012);
+        rover.battery = Math.max(0, rover.battery - moved * 0.012 * (v.roverDrain || 1));
         if (moved > 1 && Math.random() < 0.5) puff(rover.x - Math.cos(rover.a) * 40, rover.y - Math.sin(rover.a) * 40, 0.5);
       } else rover.speed = 0;
       P.x = rover.x; P.y = rover.y;
