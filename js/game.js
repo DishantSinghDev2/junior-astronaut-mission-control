@@ -88,17 +88,21 @@
     </div><div class="foot">Team Pheonix · NASA Space Apps Challenge 2026</div></section>`);
     let p = 0;
     const set = (v, msg) => { p = Math.max(p, v); const b = $("#ld-bar"), t = $("#ld-text"); if (b) b.style.width = p + "%"; if (t) t.textContent = msg || `Loading mission… ${Math.round(p)}%`; };
-    const tick = setInterval(() => set(Math.min(88, p + 3)), 100);
-    set(10, "Talking to NASA DONKI…");
-    const donki = Donki.load().then(() => set(90));
-    const fonts = (document.fonts && document.fonts.ready) || Promise.resolve();
+    set(8, "Starting…");
+    const donki = Donki.load();
+    const fonts = Promise.race([(document.fonts && document.fonts.ready) || Promise.resolve(), wait(5000)]);
     ["intro", "explore"].forEach(n => Sound.el(n));
-    const models = World.preload(f => set(15 + f * 70, `Loading 3D models… ${Math.round(f * 100)}%`));
-    await Promise.all([fonts, models, Promise.race([donki, wait(6000)]), wait(1300)]);
+    const models = World.preload((f, bytes) => set(10 + f * 80, `Loading 3D models… ${Math.round(f * 100)}% (${(bytes / 1048576).toFixed(1)} MB)`));
+    let skipped = false, skipRes;
+    const skipP = new Promise(r => (skipRes = r)), tick = null;
+    const slow = setTimeout(() => { const t = $("#ld-text"); if (!t) return; const b = document.createElement("button"); b.className = "btn-secondary sm"; b.style.marginTop = ".8rem"; b.textContent = "Slow connection? Continue anyway"; b.onclick = () => { skipped = true; skipRes(); }; t.after(b); }, 18000);
+    await Promise.race([Promise.all([fonts, models, Promise.race([donki, wait(6000)]), wait(1300)]), skipP]);
+    clearTimeout(slow);
+    if (skipped && !World.modelsLoaded) { home(); return; }
     set(95, "Preparing the outposts…");
     await wait(50);
     try { shots.moon = await World.snapshot("moon", 505, 720, 420); shots.mars = await World.snapshot("mars", 202, 720, 420); } catch (e) { console.warn(e); }
-    clearInterval(tick); set(100); await wait(300);
+    set(100); await wait(300);
     home();
   }
 
@@ -412,6 +416,11 @@
   }
 
   function startMission(opts) {
+    if (!World.modelsLoaded) {   // slow connection: the 3D models are still downloading
+      openModal(`<div class="pause"><h2>Loading 3D models…</h2><p id="ml-p">Please wait a moment.</p></div>`);
+      World.modelsPromise.then(() => { closeModal(); startMission(opts); });
+      return;
+    }
     lobbyOn = false;
     if (S) S.over = true;
     closeModal(); $("#popup").hidden = true; $("#cine").hidden = true;
@@ -454,7 +463,7 @@
   /* ---------- the drop: your pod falls from orbit, BGMI-style ---------- */
   const DROP_WAIT = 2.6, DROP_FALL = 5.4, H0 = 24;
   function beginDrop() {
-    S.drop = { t: 0, landed: false, hatch: false, prevH: H0, lx: 1800, ly: 1990, burn: false };
+    S.drop = { t: 0, landed: false, hatch: false, prevH: H0, lx: 1500, ly: 2260, burn: false };
     hud.style.visibility = "hidden"; $("#g-ticker").hidden = true;
     const el = document.createElement("div"); el.id = "drop"; el.className = "drop-hud";
     el.innerHTML = `<div class="dr-top"><small>DEPLOYING TO</small><b>${esc(S.site.name)}</b><em>${S.placeId === "moon" ? "THE MOON" : "MARS"} · ${esc(profile.name)}</em></div>
@@ -611,7 +620,7 @@
     while (n > 0 && tries++ < 300) {
       const a = Math.random() * Math.PI * 2, r = 520 + Math.random() * 700;
       const x = 1800 + Math.cos(a) * r, y = 1290 + Math.sin(a) * r * 0.8;
-      if (x > 80 && y > 80 && x < World.W - 80 && y < World.H - 80 && World.free(x, y)) { S.samples.push({ x, y, taken: false }); n--; }
+      if (x > 80 && y > 80 && x < World.W - 80 && y < World.H - 80 && !(x > 380 && x < 3080 && y > 440 && y < 2080) && World.free(x, y)) { S.samples.push({ x, y, taken: false }); n--; }
     }
     S.samples = S.samples.filter(s => !s.taken).slice(-12);
   }
