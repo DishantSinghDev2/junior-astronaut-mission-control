@@ -452,6 +452,7 @@
     }
     app.hidden = true; gameEl.hidden = false; document.body.classList.add("playing"); document.body.classList.remove("cine", "menu", "dim");
     World.reset(dest, site); World.setCine(null); World.resize();
+    crewInit();
     buildHud();
     if (MP.role === "host" && !(opts && opts.storms)) MP.start({ dest, site: D.places[dest].sites.indexOf(site), storms, days: DAYS });
     syncRemotes();
@@ -460,10 +461,60 @@
     beginDrop();
     last = performance.now();
   }
+  /* ---------- crew jobs: assign the three crew members by hand, or let Auto decide ---------- */
+  const JOBS = [["panels", "Clean solar panels", "sparkles", "Scrubs dusty panels, one by one"], ["greenhouse", "Tend the greenhouse", "sprout", "Plants grow faster and get harvested"], ["life", "Life Support", "droplets", "Purifies water: +Life, uses a little Power"], ["shield", "Shield generator", "shield", "Charges the shield: +Shield, uses a little Power"], ["science", "Lab research", "flask-conical", "Slowly makes science for the score"], ["rest", "Rest in quarters", "heart-pulse", "Saves energy, does nothing else"]];
+  const CREW = [["Mia", "#4c8dff"], ["Arjun", "#2ecc71"], ["Zoe", "#ff6bd5"]];
+  const ST = () => BaseKit.STATIONS;
+  function stationFor(job, i) {
+    const st = ST(), m = { greenhouse: st.green, life: st.life, shield: st.shield, science: st.lab, rest: st.rest, shelter: st.shelter }[job] || st.command;
+    return { x: m.x + (i - 1) * 34, y: m.y + (i % 2 ? 26 : -10) };
+  }
+  function crewApply(i, job) {
+    if (!S.cj) return; const c = S.cj[i]; c.job = job; c.tgt = null; c.t = 0; World.setCrewJob(i, job);
+    if (job === "panels") { c.tgt = null; return; }
+    const p = stationFor(job, i); World.crewGo(i, p.x, p.y);
+  }
+  function crewAuto() {   // decide the best three jobs from what the base needs right now
+    const avgDust = S.dust.reduce((a, b) => a + b, 0) / S.dust.length;
+    const need = { life: 100 - S.life, shield: (100 - S.shield) * 0.95, greenhouse: Math.max(100 - S.food, S.growth * 70), panels: avgDust * 110, science: 28, rest: 5 };
+    const top = Object.entries(need).sort((a, b) => b[1] - a[1]).slice(0, 3).map(x => x[0]);
+    S.cj.forEach((c, i) => { if (c.job !== top[i] && !S.storm) crewApply(i, top[i]); });
+  }
+  function crewInit() { S.cj = CREW.map(() => ({ job: "rest", tgt: null, t: 0 })); S.autoCrew = true; S.cjT = 0; S.cjSaved = null; }
+  function crewTick(dt) {
+    if (!S.cj || S.cx) return; const list = World.crewList(), pd = dt * PASSIVE;
+    if (S.storm) { if (!S.cjSaved) { S.cjSaved = S.cj.map(c => c.job); S.cj.forEach((c, i) => crewApply(i, "shelter")); } return; }
+    if (S.cjSaved) { const sv = S.cjSaved; S.cjSaved = null; S.cj.forEach((c, i) => crewApply(i, sv[i] === "shelter" ? "rest" : sv[i])); if (S.autoCrew) crewAuto(); }
+    S.cjT -= dt; if (S.autoCrew && S.cjT <= 0) { S.cjT = 9; crewAuto(); }
+    S.cj.forEach((c, i) => {
+      const w = list[i]; if (!w) return; const stn = c.job === "panels" ? null : stationFor(c.job, i);
+      if (c.job === "panels") {
+        if (c.tgt === null) { let b = -1, bd = 0.14; S.dust.forEach((d, k) => { if (d > bd) { bd = d; b = k; } }); if (b >= 0) { c.tgt = b; const o = World.obj("panel" + b); World.crewGo(i, o.x, o.y + 64); } return; }
+        const o = World.obj("panel" + c.tgt); if (Math.hypot(w.x - o.x, w.y - (o.y + 64)) < 50 || w.arrived) { c.t += dt; if (c.t > 3.2) { c.t = 0; S.dust[c.tgt] = Math.max(0, S.dust[c.tgt] - 0.9); World.burst("spark", o.x, o.y, 6); c.tgt = null; } }
+        return;
+      }
+      if (Math.hypot(w.x - stn.x, w.y - stn.y) > 120) return;   // still walking there
+      if (c.job === "greenhouse") { S.growth = Math.min(1, S.growth + R.grow * 0.8 * pd); if (S.growth >= 1) { S.growth = 0; S.food = Math.min(100, S.food + R.harvest * 0.7); toast(`${CREW[i][0]} harvested the greenhouse <b class="green">+${Math.round(R.harvest * 0.7)} Food</b>`, 2600); } }
+      else if (c.job === "life" && S.life < 100 && S.power > 5 && !S.broken) { S.life = Math.min(100, S.life + R.purifyGain * 0.45 * dt); S.power -= R.purifyCost * 0.45 * dt; }
+      else if (c.job === "shield" && S.shield < 100 && S.power > 5) { S.shield = Math.min(100, S.shield + R.boostGain * 0.45 * dt); S.power -= R.boostCost * 0.45 * dt; }
+      else if (c.job === "science" && S.power > 8) { S.science += 0.085 * dt; S.power -= 0.04 * dt; }
+    });
+  }
+  function crewModal() {
+    S.modalOpen = true;
+    openModal(`<div class="crewbox"><h1>Your crew</h1>
+      <label class="auto-row"><input type="checkbox" id="crew-auto" ${S.autoCrew ? "checked" : ""}> <b>Auto assign</b> <span>(default) The crew picks the job the base needs most.</span></label>
+      <div class="crew-grid">${CREW.map(([n, col], i) => `<div class="crew-card" style="--c:${col}"><div class="cc-h"><i></i><b>${n}</b><span>${S.cj[i].job === "shelter" ? "Sheltering from the storm" : esc((JOBS.find(j => j[0] === S.cj[i].job) || [0, "Resting"])[1])}</span></div>
+        <div class="cc-jobs">${JOBS.map(j => `<button class="${S.cj[i].job === j[0] ? "on" : ""}" data-cjob="${i}:${j[0]}" title="${j[3]}">${I(j[2])}<small>${j[1]}</small></button>`).join("")}</div></div>`).join("")}</div>
+      <p class="vid-note">Pick a job for each crew member. They walk there and work. During a solar storm everyone runs to the Storm Shelter.</p>
+      <button class="btn-primary" data-act="resume">Done</button></div>`);
+    const cb = $("#crew-auto"); if (cb) cb.addEventListener("change", () => { S.autoCrew = cb.checked; if (S.autoCrew) crewAuto(); });
+  }
+
   /* ---------- the drop: your pod falls from orbit, BGMI-style ---------- */
-  const DROP_WAIT = 2.6, DROP_FALL = 5.4, H0 = 24;
+  const DROP_WAIT = 2.6, DROP_FALL = 6.8, H0 = 34, lerp = (a, b, t) => a + (b - a) * t;
   function beginDrop() {
-    S.drop = { t: 0, landed: false, hatch: false, prevH: H0, lx: 1500, ly: 2260, burn: false };
+    S.drop = { t: 0, landed: false, hatch: false, prevH: H0, lx: 1500, ly: 2260, burn: false, tl: 0 };
     hud.style.visibility = "hidden"; $("#g-ticker").hidden = true;
     const el = document.createElement("div"); el.id = "drop"; el.className = "drop-hud";
     el.innerHTML = `<div class="dr-top"><small>DEPLOYING TO</small><b>${esc(S.site.name)}</b><em>${S.placeId === "moon" ? "THE MOON" : "MARS"} · ${esc(profile.name)}</em></div>
@@ -471,45 +522,82 @@
       <div class="dr-alt"><div><small>ALTITUDE</small><b id="dr-alt">12000 m</b></div><div><small>SPEED</small><b id="dr-spd">0 m/s</b></div><div><small>ENGINE</small><b id="dr-eng">STANDBY</b></div></div>
       <div class="dr-flash" id="dr-flash"></div><button class="dr-skip" data-act="drop-skip">Skip ▸</button>`;
     gameEl.appendChild(el);
-    const P = World.player; P.x = S.drop.lx + 130; P.y = S.drop.ly + 80;
-    World.setPod(true, S.drop.lx, S.drop.ly, H0, false);
-    World.setCine({ pos: { x: S.drop.lx + 330, y: S.drop.ly + 300, h: 1.0 }, look: { x: S.drop.lx, y: S.drop.ly, h: H0 * 0.8 }, fov: 60, speed: 8, jump: true });
+    const d = S.drop, hid = { x: d.lx, y: d.ly - 64, z: 0.52, face: Math.PI, anim: "Idle", hidden: true };
+    [0, 1, 2].forEach(i => World.puppetCrew(i, { ...hid })); World.puppetPlayer({ ...hid });
+    World.setPod(true, d.lx, d.ly, H0, false); World.setChute(S.placeId === "mars" ? 1 : 0);
+    World.setCine({ pos: { x: d.lx + 430, y: d.ly + 440, h: 1.0 }, look: { x: d.lx, y: d.ly, h: H0 * 0.78 }, fov: 58, speed: 8, jump: true });
   }
-  function landNow() {
-    const d = S.drop, P = World.player; if (!d || d.hatch) return; d.hatch = true;
-    World.setPod(true, d.lx, d.ly, 0, false, false); World.podStay(d.lx, d.ly);
-    for (const [dx, dy] of [[130, 80], [-130, 80], [120, -90], [0, 140]]) if (World.free(d.lx + dx, d.ly + dy)) { P.x = d.lx + dx; P.y = d.ly + dy; break; }
-    P.face = Math.atan2(d.lx - P.x, d.ly - P.y) + Math.PI;
+  function landNow() {   // used when skipping: lander on the ground, everybody out and walking
+    const d = S.drop; if (!d || d.hatch) return; d.hatch = true;
+    World.setChute(0); World.setPod(true, d.lx, d.ly, 0, false, false); if (!d.landed) { d.landed = true; World.podStay(d.lx, d.ly); }
+    [0, 1, 2].forEach(i => { World.puppetCrew(i, null); World.crewSet(i, 1400 + (i - 1) * 55, 1960 + (i % 2) * 30); }); World.puppetPlayer(null); S.cx = null;
+    const P = World.player; P.x = d.lx - 30; P.y = d.ly - 150; P.face = Math.PI;
+  }
+  /* the crew climbs down the ladder one by one and walks to the base, like the Ares crew in The Martian */
+  function crewExitInit(d) {
+    const pp = World.podPose(); S.cx = { t: 0, pp, playerFree: false, mem: [0, 1, 2, 3].map(k => ({ k, t0: 1.8 + k * 1.3, done: false, path: [{ x: d.lx + (k - 1.5) * 80, y: d.ly - 340 }, { x: 1400 + (k - 1.5) * 50, y: 1960 }] })) };
+  }
+  function crewExitTick(dt) {
+    const c = S.cx; if (!c) return; c.t += dt; const pp = c.pp; let alive = false;
+    c.mem.forEach(m => {
+      if (m.done) return; alive = true; const u = c.t - m.t0; let st;
+      if (u < 0) st = { x: pp.porch.x, y: pp.porch.y, z: 0.52, face: Math.PI, anim: "Idle", hidden: true };
+      else if (u < 1.4) { const f = u / 1.4; st = { x: lerp(pp.porch.x, pp.ladder.x, f), y: lerp(pp.porch.y, pp.ladder.y, f), z: 0.52 * (1 - f), face: Math.PI, anim: "Walk", hidden: false }; }
+      else {
+        let dist = (u - 1.4) * 82, px = pp.ladder.x, py = pp.ladder.y, face = Math.PI, fin = true;
+        for (const q of m.path) { const L = Math.hypot(q.x - px, q.y - py); if (dist <= L) { const f = dist / L; face = Math.atan2(q.x - px, q.y - py); px = lerp(px, q.x, f); py = lerp(py, q.y, f); fin = false; break; } dist -= L; px = q.x; py = q.y; face = Math.atan2(q.x - px, q.y - py); }
+        st = { x: px, y: py, z: 0, face, anim: "Walk", hidden: false };
+        if (m.k === 3 && !c.playerFree && u > 1.4 + Math.hypot(m.path[0].x - pp.ladder.x, m.path[0].y - pp.ladder.y) / 82 - 0.4) { c.playerFree = true; m.done = true; World.puppetPlayer(null); const P = World.player; P.x = px; P.y = py; P.face = face; if (S.drop) endDrop(); return; }
+        if (fin) { m.done = true; if (m.k < 3) { World.puppetCrew(m.k, null); World.crewGo(m.k, m.path[1].x, m.path[1].y); } return; }
+      }
+      if (m.k < 3) World.puppetCrew(m.k, st); else World.puppetPlayer(st);
+    });
+    if (!alive) S.cx = null;
+  }
+  function crewLogic() {   // the crew shelter from storms
+    if (!S || !S.tasks || S.cx) return; const stormy = !!S.storm;
+    World.crewList().forEach(c => {
+      const rm = World.roomAt(c.x, c.y);
+      if (stormy && rm !== "shelter" && !c.moving) { World.crewGo(c.i, 1840 + c.i * 35, 1700 + (c.i % 2) * 40); }
+    });
   }
   function dropTick(dt) {
-    const d = S.drop; d.t += dt;
-    const s = clamp((d.t - DROP_WAIT) / DROP_FALL, 0, 1), cnt = $("#dr-count");
-    const h0 = H0 - DROP_WAIT * 1.2;
-    const h = d.t < DROP_WAIT ? H0 - d.t * 1.2 : h0 * Math.pow(1 - s, 1.6);
+    const d = S.drop; d.t += dt; const mars = S.placeId === "mars";
+    const s = clamp((d.t - DROP_WAIT) / DROP_FALL, 0, 1), h0 = H0 - DROP_WAIT * 1.1, cnt = $("#dr-count");
+    const h = d.t < DROP_WAIT ? H0 - d.t * 1.1 : h0 * Math.pow(1 - s, 1.7);
+    const burnAt = mars ? 0.5 : 0.1;
     if (d.t < DROP_WAIT) cnt.textContent = d.t < 0.5 ? "" : String(Math.max(1, Math.ceil(DROP_WAIT - d.t)));
-    else if (!d.landed) cnt.textContent = d.t < DROP_WAIT + 0.9 ? "IGNITION" : "";
-    if (d.t >= DROP_WAIT && !d.burn) { d.burn = true; Sound.sfx("thrust"); $("#dr-eng").textContent = "BURN"; $("#dr-eng").classList.add("hot"); }
+    else if (!d.landed) cnt.textContent = s < burnAt ? (mars ? "PARACHUTE" : "FREE FALL") : d.t < DROP_WAIT + DROP_FALL * burnAt + 1.0 ? "IGNITION" : "";
+    if (s >= burnAt && !d.burn && !d.landed) { d.burn = true; Sound.sfx("thrust"); $("#dr-eng").textContent = "BURN"; $("#dr-eng").classList.add("hot"); if (mars) World.setChute(2); }
     const spd = Math.max(0, (d.prevH - h) / Math.max(dt, 0.001) * 6.3); d.prevH = h;
     $("#dr-alt").textContent = Math.round(h / H0 * 12000 / 10) * 10 + " m"; $("#dr-spd").textContent = Math.round(spd) + " m/s";
     if (!d.hatch) {
       const bounce = d.landed ? Math.max(0, 0.08 * Math.exp(-4 * (d.t - d.tl)) * Math.sin(20 * (d.t - d.tl))) : 0;
-      World.setPod(true, d.lx, d.ly, h + bounce, d.burn && !d.landed);
+      World.setPod(true, d.lx, d.ly, h + bounce, d.burn && !d.landed, false);
     }
-    const shake = d.landed && d.t - d.tl < 0.7 ? (Math.random() - 0.5) * 0.12 : 0;
-    World.setCine({ pos: { x: d.lx + 330 + shake * 200, y: d.ly + 300, h: 1.0 + shake }, look: { x: d.lx, y: d.ly, h: Math.max(0.6, h * 0.75) }, fov: h > 10 ? 60 : 50, speed: 5 });
+    if (!d.landed) {
+      const close = clamp((s - 0.35) / 0.4, 0, 1), shake = 0;
+      World.setCine({ pos: { x: lerp(d.lx + 430, d.lx + 260, close), y: lerp(d.ly + 440, d.ly + 250, close), h: lerp(1.0, 0.55, close) }, look: { x: d.lx, y: d.ly, h: Math.max(0.55, h * lerp(0.78, 0.4, close)) }, fov: h > 12 ? 58 : 50, speed: 6 });
+    } else {
+      const u = d.t - d.tl, shake = u < 0.8 ? (Math.random() - 0.5) * 0.1 * (1 - u / 0.8) : 0;
+      World.setCine({ pos: { x: d.lx + 360 + shake * 200, y: d.ly - 10, h: 0.75 + shake }, look: { x: d.lx - 20, y: d.ly - 210, h: 0.55 }, fov: 50, speed: 2.2 });
+      if (u > 0.6 && !d.cx) { d.cx = true; crewExitInit(d); cnt.textContent = ""; }
+      if (S.cx) crewExitTick(dt);
+      if (u > 22) endDrop();
+    }
     if (s >= 1 && !d.landed) {
-      d.landed = true; d.tl = d.t; cnt.textContent = "TOUCHDOWN"; Sound.sfx("land"); $("#dr-eng").textContent = "SHUTDOWN"; $("#dr-eng").classList.remove("hot");
-      for (let i = 0; i < 40; i++) { const a = (i / 40) * 6.28; const p = World.burst("dust", d.lx + Math.cos(a) * 50, d.ly + Math.sin(a) * 50, 2); }
+      d.landed = true; d.tl = d.t; cnt.textContent = "TOUCHDOWN"; Sound.sfx("land"); $("#dr-eng").textContent = "SHUTDOWN"; $("#dr-eng").classList.remove("hot"); World.podStay(d.lx, d.ly);
+      for (let i = 0; i < 70; i++) { const a = (i / 70) * 6.28; World.burst("dust", d.lx + Math.cos(a) * 60, d.ly + Math.sin(a) * 60, 2); }
+      for (let i = 0; i < 10; i++) { const a = Math.random() * 6.28; World.throwRock(d.lx + Math.cos(a) * 60, d.ly + Math.sin(a) * 60, 0.1, Math.cos(a) * 380, Math.sin(a) * 380, 3 + Math.random() * 3, 0.05 + Math.random() * 0.06, 2.4); }
       $("#dr-flash").classList.add("on");
     }
-    if (d.landed && d.t > d.tl + 1.3 && !d.hatch) { landNow(); cnt.textContent = ""; World.burst("spark", d.lx + 120, d.ly + 80, 8); }
-    if (d.landed && d.t > d.tl + 2.9) endDrop();
   }
   function endDrop() {
     if (!S || !S.drop) return;
-    landNow();
+    const d = S.drop, keepCx = d.cx && S.cx && S.cx.playerFree;
+    if (!keepCx) landNow();
     S.drop = null; const el = $("#drop"); if (el) el.remove();
-    World.setCine(null);
+    World.setCine(null); World.setChute(0);
     hud.style.visibility = "";
     Sound.music("explore"); startDay(); toast(S.resumed ? `Welcome back, ${esc(profile.name)}! ${cap(S.place.dayWord)} ${S.day} of ${DAYS}.` : `Touchdown at ${esc(S.site.name)}! Your ${S.place.dayWord} 1 begins.`, 4500);
     last = performance.now();
@@ -632,6 +720,9 @@
 
   function update(dt) {
     if (S.drop) return dropTick(dt);
+    if (S.cx) crewExitTick(dt);
+    S.crewT = (S.crewT || 0) - dt;
+    if (S.crewT <= 0) { S.crewT = 1.2; crewLogic(); }
     if (S.intro) { S.storm = S.introStorm ? { phase: "hit" } : null; return; }
     const simulate = !S.modalOpen || (S.ask && S.ask.live);
     if (S.ask) {
@@ -683,6 +774,7 @@
     S.sampleT += dt;
     if (S.sampleT >= 2) { S.sampleT = 0; S.hist.push({ d: S.day - 1 + S.t / DAY_LEN, life: S.life, power: S.power, shield: S.shield }); }
 
+    crewTick(dt);
     if (S.life <= 0) return fail("Life Support ran out. The crew didn't have enough air and water.");
     if (S.shield <= 0) return fail("Shielding hit zero. The crew got too much radiation.");
     if (S.blackout > 10) return fail("The base was out of power for too long.");
@@ -693,6 +785,7 @@
     const t = e.target.closest ? e.target : null; if (!t) return;
     const b = t.closest("[data-say]"); if (b) return saySend(+b.dataset.say);
     const u = t.closest("[data-buy]"); if (u) return buy(u.dataset.buy);
+    const cj = t.closest("[data-cjob]"); if (cj && S && S.cj) { const [i, job] = cj.dataset.cjob.split(":"); S.autoCrew = false; const cb = $("#crew-auto"); if (cb) cb.checked = false; crewApply(+i, job); return crewModal(); }
     const lg = t.closest("[data-lang]"); if (lg) return I18N.set(lg.dataset.lang);
     const l = t.closest("[data-len]"); if (l) { profile.len = l.dataset.len; DAYS = LENGTHS[profile.len]; saveProfile(); document.querySelectorAll("[data-len]").forEach(x => x.classList.toggle("on", x === l)); }
   });
@@ -1053,6 +1146,7 @@
         <div class="h-crew" id="h-crew"></div></div>
       <div class="h-actions">
         <div class="stack">
+          <button class="round crewb" data-act="crew" aria-label="Crew jobs">${I("users")}<small>Crew</small></button>
           <button class="round radio" id="mc-btn" data-act="reopen" aria-label="Mission Control">${I("radio-tower")}<small id="mc-txt">Radio</small></button>
           <button class="round radar" id="alert-btn" data-act="sunwatch" aria-label="Sun Watch: real NASA solar storms"><span class="sweep"></span><b id="alert-txt">${I("sun")}</b><small>Sun Watch</small></button>
         </div>
@@ -1299,6 +1393,7 @@
       case "drop-skip": if (S && S.drop) endDrop(); return;
       case "lang-toggle": { const c = I18N.codes, i = c.indexOf(I18N.lang); return I18N.set(c[(i + 1) % c.length]); }
       case "credits": return creditsModal();
+      case "crew": return crewModal();
       case "shop": return shop("pause");
       case "shop-done": closeModal(); if (S && S.shopFrom === "day") { S.shopFrom = null; advanceDay(); } return;
       case "suit": return suitModal();

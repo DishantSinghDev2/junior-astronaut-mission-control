@@ -110,3 +110,12 @@ Made by Team Pheonix with AI-assisted coding. Every team member should read, tes
 ## Credits
 
 See `assets/CREDITS.md` (also in the game: title menu, Credits). Summary: NASA DONKI data and NASA 3D Resources (public domain), Kenney and Quaternius models (CC0), Poly Haven textures (CC0), Solar System Scope maps (CC BY 4.0), ElevenLabs voice and music (AI generated), three.js and PeerJS (MIT), Lucide (ISC), Google Fonts (OFL). Built with help from Claude (Anthropic). Not endorsed by NASA.
+
+## Update: the base, the landing, storms and crew
+
+- **A long modular base** (habitat tubes, geodesic dome, corridors, rover garage, dish array, solar field, mountains) built in `js/base.js`. Walk in through the doors: the roof and walls fade away and you see the equipment (bunks, planters, lab benches, tanks, shield coils, consoles). Pathfinding goes through the doors.
+- **The landing**: Mars gets a red and white parachute, then a retro-burn with a plume that hits the ground and throws dust and rocks; the crew climbs down the ladder one by one and walks to the base. The Moon uses the Apollo Lunar Module (no parachute).
+- **Storms**: dust haze, flying rocks, shorter view, camera shake, a howling wind; astronauts shield their visors with their hands, lean into the wind and walk at half speed; the crew runs to the shelter.
+- **Rover**: the six wheels turn and leave tyre tracks; astronauts leave footprints.
+- **Crew jobs**: press the Crew button. Auto assign is on by default; or give each of the three crew members a job (clean panels, greenhouse, life support, shield, lab, rest).
+- **Loading**: 3D models are compressed to about 5.7 MB; the loader shows real progress and offers "Continue anyway" on slow connections.

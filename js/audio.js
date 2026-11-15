@@ -91,7 +91,17 @@ window.Sound = (() => {
   }
   function unlock() { const c = ctx(); if (c && c.state === "suspended") c.resume(); }
 
+  let windN = null;
+  function wind(level) {   // low howl that follows the storm strength (0 to 1)
+    const c = ctx(); if (!c) return;
+    if (!windN) {
+      const len = c.sampleRate * 3, buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0); let lp = 0; for (let i = 0; i < len; i++) { lp += ((Math.random() * 2 - 1) - lp) * 0.08; d[i] = lp * 2.4; }
+      const s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain(), lfo = c.createOscillator(), lg = c.createGain();
+      s.buffer = buf; s.loop = true; f.type = "bandpass"; f.frequency.value = 520; f.Q.value = 0.7; g.gain.value = 0; lfo.frequency.value = 0.23; lg.gain.value = 240; lfo.connect(lg).connect(f.frequency); s.connect(f).connect(g).connect(c.destination); s.start(); lfo.start(); windN = { g };
+    }
+    windN.g.gain.setTargetAtTime(muted ? 0 : Math.min(1, level) * 0.32 * sfxVol, c.currentTime, 0.4);
+  }
   function setMusicVol(v) { musicVol = Math.max(0, Math.min(1, v)); try { localStorage.setItem("lo-mvol", musicVol); } catch (e) {} if (current && !muted) { const a = el(current); a.volume = voiceEl ? musicVol * 0.35 : musicVol; } }
   function setSfxVol(v) { sfxVol = Math.max(0, Math.min(1, v)); try { localStorage.setItem("lo-svol", sfxVol); } catch (e) {} }
-  return { setMusicVol, setSfxVol, get musicVol() { return musicVol; }, get sfxVol() { return sfxVol; }, music, voice, stopVoice, sfx, setMuted, get muted() { return muted; }, unlock, el };
+  return { wind, setMusicVol, setSfxVol, get musicVol() { return musicVol; }, get sfxVol() { return sfxVol; }, music, voice, stopVoice, sfx, setMuted, get muted() { return muted; }, unlock, el };
 })();

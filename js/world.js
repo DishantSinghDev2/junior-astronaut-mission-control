@@ -202,6 +202,13 @@ window.World = (() => {
     add({ id: "lander", kind: "lander", x: 440, y: 2240, r: 170, label: "Old Lander", far: true });
     const rk = new THREE.Group(); rk.add(model(place === "mars" ? "nasa_viking" : "nasa_lm", 170, { rot: 0.6 }));
     rk.rotation.z = 0.1; put(rk, 440, 2240); solidCircle(440, 2240, 85);
+    // distant mesas and mountains around the horizon (like the reference photos)
+    { const mr = rngFrom(seed + 7), col = place === "mars" ? [0x8a4a30, 0x9a5a3a, 0x7a3e28] : [0x6b6b72, 0x7b7b84, 0x5c5c64];
+      for (let k = 0; k < 26; k++) {
+        const a = (k / 26) * Math.PI * 2 + mr() * 0.2, rx = 30 + mr() * 12, rz = 24 + mr() * 10, cx = W * K / 2 + Math.cos(a) * (W * K / 2 + rx * 0.9), cz = H * K / 2 + Math.sin(a) * (H * K / 2 + rz * 0.9);
+        const g = new THREE.IcosahedronGeometry(1, 2), p = g.attributes.position; for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), n = 0.78 + Math.sin(x * 4.1 + z * 3.3) * 0.12 + Math.sin(y * 7 + x * 2) * 0.08; p.setXYZ(i, x * n, Math.max(0, y) * (1 + Math.abs(Math.sin(x * 3 + z * 2)) * 0.5) * n, z * n); } g.computeVertexNormals();
+        const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: col[k % 3], roughness: 1, flatShading: true })); const sx = 3 + mr() * 6; m.scale.set(sx, 3 + mr() * 8, sx * (0.7 + mr() * 0.6)); m.position.set(cx, -0.2, cz); m.rotation.y = mr() * 6; m.receiveShadow = false; groupWorld.add(m);
+      } }
     // light beacons over the four remote mission spots, so you can spot them from far away
     beacons = [];
     [["weather", 0x4cc0ff], ["ice", 0x9fe3ff], ["relay", 0xffc94a], ["lander", 0xb07cff]].forEach(([id, col]) => {
@@ -235,7 +242,7 @@ window.World = (() => {
     });
     roverMesh = model("nasa_pers", 150); groupWorld.add(roverMesh);
     roverWheelsSet.length = 0; { const ws = []; roverMesh.traverse(o => { if (o.name && /^wheel_\d$/.test(o.name)) ws.push(o); }); roverWheelsSet.push(ws); }
-    lastR = null; lastF.clear(); trkInit(); debrisInit(); stormPts = null; stormI = 0;
+    lastR = null; lastF.clear(); trkInit(); debrisInit(); stormPts = null; stormHaze = []; stormI = 0;
     P = { x: 1900, y: 1330, z: 0, vz: 0, face: 0, moving: false, target: null, inRover: false };
     rover = { x: 2330, y: 1720, a: 0, battery: 100, speed: 0 };
     holdProg = 0; holdId = null; cine = null; focusV = null;
@@ -679,6 +686,7 @@ window.World = (() => {
     }
     syncEnv(camera);
     BaseKit.update(base, camera, P, dt);
+    if (stormI > 0.4 && P && !BaseKit.roomAt(base, P.x, P.y)) { const sh = 0.035 * stormI; camera.position.x += (Math.random() - 0.5) * sh; camera.position.y += (Math.random() - 0.5) * sh; }
     camYawShown = cY;
   }
   let camYawShown = 0;
@@ -746,7 +754,7 @@ window.World = (() => {
       const o = objects.find(q => q.id === b.id), near = Math.hypot(o.x - P.x, o.y - P.y) < 220, tgt = v.guide && v.guide.id === b.id;
       b.g.visible = !near && !cine; b.beam.material.opacity = tgt ? 0.34 + Math.sin(t * 4) * 0.08 : 0.13; b.ring.scale.setScalar(1 + (tgt ? Math.sin(t * 4) * 0.08 : 0)); b.ring.material.opacity = tgt ? 0.8 : 0.35;
     });
-    stormTick(dt, v); debrisTick(dt); tracksTick(); remotesDraw(dt); flameTick(dt);
+    stormTick(dt, v); if (window.Sound) Sound.wind(stormI); debrisTick(dt); tracksTick(); remotesDraw(dt); flameTick(dt);
     overlays(v);
   }
   function placeRig(r, x, y, face, anim, dt, z = 0) {
@@ -957,19 +965,21 @@ window.World = (() => {
     rockPool.forEach(r => { if (r.life <= 0) return; r.life -= dt; r.vz -= g * dt; r.m.position.x += r.vx * K * dt; r.m.position.z += r.vy * K * dt; r.m.position.y += r.vz * dt;
       if (r.m.position.y < 0.04) { r.m.position.y = 0.04; r.vz = Math.abs(r.vz) * 0.35; r.vx *= 0.75; r.vy *= 0.75; } r.m.rotation.x += dt * r.sp; r.m.rotation.z += dt * r.sp * 0.6; if (r.life <= 0) r.m.visible = false; });
   }
-  let stormPts = null, stormI = 0; const WIND = { x: 0.94, y: 0.34 };
+  let stormPts = null, stormHaze = [], stormI = 0; const WIND = { x: 0.94, y: 0.34 };
   function stormInit() {
-    const N = 650, pos = new Float32Array(N * 3); for (let i = 0; i < N; i++) { pos[i * 3] = (Math.random() - 0.5) * 24; pos[i * 3 + 1] = 0.1 + Math.random() * 6; pos[i * 3 + 2] = (Math.random() - 0.5) * 18; }
+    const N = 1100, pos = new Float32Array(N * 3); for (let i = 0; i < N; i++) { pos[i * 3] = (Math.random() - 0.5) * 24; pos[i * 3 + 1] = 0.1 + Math.random() * 6; pos[i * 3 + 2] = (Math.random() - 0.5) * 18; }
     const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-    stormPts = new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.7, map: puffTexture(), color: place === "mars" ? 0xd9985f : 0xbfc0c8, transparent: true, opacity: 0, depthWrite: false, sizeAttenuation: true, fog: false }));
+    stormPts = new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.42, map: puffTexture(), color: place === "mars" ? 0xc98a52 : 0xb4b4bc, transparent: true, opacity: 0, depthWrite: false, sizeAttenuation: true, fog: false }));
+    stormHaze = []; for (let i = 0; i < 9; i++) { const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: puffTexture(), color: place === "mars" ? 0xcf9560 : 0xb9b9c2, transparent: true, opacity: 0, depthWrite: false, fog: false })); sp.scale.set(14 + i, 5 + i * 0.4, 1); sp.userData = { ox: (Math.random() - 0.5) * 20, oz: (Math.random() - 0.5) * 14, h: 0.6 + Math.random() * 2.2, sp: 6 + Math.random() * 6 }; scene.add(sp); stormHaze.push(sp); }
     stormPts.frustumCulled = false; scene.add(stormPts);
   }
   function stormTick(dt, v) {
     const want = v.storm ? 1 : v.stormSoon ? 0.4 : 0; stormI += (want - stormI) * Math.min(1, dt * 1.2);
-    if (stormI < 0.01) { stormI = 0; if (stormPts) stormPts.visible = false; scene.fog.far = pal.fogFar; return; }
+    if (stormI < 0.01) { stormI = 0; if (stormPts) stormPts.visible = false; stormHaze.forEach(s => (s.visible = false)); scene.fog.far = pal.fogFar; scene.fog.near = pal.fogNear; return; }
     if (!stormPts || stormPts.parent !== scene) stormInit();
     const f = camFocus(), fx = f.x * K, fz = f.y * K, a = stormPts.geometry.attributes.position.array;
-    stormPts.visible = true; stormPts.material.opacity = 0.5 * stormI; stormPts.position.set(0, 0, 0);
+    stormPts.visible = true; stormPts.material.opacity = 0.62 * stormI; stormPts.position.set(0, 0, 0);
+    stormHaze.forEach(sp => { const u = sp.userData; u.ox += WIND.x * u.sp * stormI * dt; u.oz += WIND.y * u.sp * stormI * dt; if (u.ox > 12) u.ox -= 24; if (u.oz > 8) u.oz -= 16; sp.position.set(fx + u.ox, u.h, fz + u.oz); sp.material.opacity = 0.2 * stormI; sp.visible = true; });
     for (let i = 0; i < a.length; i += 3) {
       const sp = (7 + (i / 3 % 5) * 3) * stormI;
       a[i] += WIND.x * sp * dt; a[i + 2] += WIND.y * sp * dt; a[i + 1] += Math.sin(t * 2 + i) * dt * 0.4;
@@ -977,52 +987,83 @@ window.World = (() => {
       if (a[i + 1] < 0.1) a[i + 1] += 6; if (a[i + 1] > 6.2) a[i + 1] -= 6;
     }
     stormPts.geometry.attributes.position.needsUpdate = true;
-    scene.fog.far = pal.fogFar * (1 - 0.55 * stormI); scene.fog.near = pal.fogNear * (1 - 0.5 * stormI);
+    scene.fog.far = pal.fogFar * (1 - 0.72 * stormI); scene.fog.near = pal.fogNear * (1 - 0.7 * stormI);
     if (stormI > 0.45 && Math.random() < dt * 9 * stormI) {   // pebbles and rocks tearing past
       const cx = f.x - WIND.x * 560 + (Math.random() - 0.5) * 700, cy = f.y - WIND.y * 560 + (Math.random() - 0.5) * 700, big = Math.random() < 0.18;
       throwRock(cx, cy, 0.15 + Math.random() * 1.4, WIND.x * (520 + Math.random() * 360), WIND.y * (520 + Math.random() * 360), 1 + Math.random() * 3, big ? 0.14 + Math.random() * 0.1 : 0.04 + Math.random() * 0.05, 2.6);
     }
     if (Math.random() < dt * 60 * stormI) { const c = camFocus(); puff(c.x - 500 + Math.random() * 1000, c.y - 400 + Math.random() * 800, 1.1, undefined, 0.8, 0.2, 0.15 + Math.random() * 0.4); const pt = parts[parts.length - 1]; if (pt) { pt.vx = WIND.x * 9; pt.vz = WIND.y * 9; } }
   }
-  const POSE = { UL: [-1.15, 0, 0.55], LL: [-2.1, 0, 0], UR: [-1.15, 0, -0.55], LR: [-2.1, 0, 0], H: [0.35, 0, 0] };
+  const POSE = { UL: [0, 0, -1.5], LL: [0, 0, -1.8], UR: [0, 0, 1.5], LR: [0, 0, 1.8], H: [0.3, 0, 0] };
   const _e = new THREE.Euler(), _qi = new THREE.Quaternion(), _qd = new THREE.Quaternion();
   function stormPose(r, k) {   // arms up in front of the visor, head ducked, like shielding the face from the dust
     ["UL", "LL", "UR", "LR", "H"].forEach(n => { const b = r.bones[n]; if (!b) return; _e.set(POSE[n][0], POSE[n][1], POSE[n][2]); _qd.setFromEuler(_e); _qi.identity().slerp(_qd, k); b.quaternion.multiply(_qi); });
   }
 
   /* ---------------- landing cinematic: a real lander (Apollo LM / Viking) with a rocket plume ---------------- */
-  let flame = null, flameCore = null, flameLight = null, flameOn = 0, podKeep = false;
+  let flameLight = null, flameOn = 0, podKeep = false, plume = [], groundGlow = null, chute = null, chuteLines = null, chuteMode = 0, chuteT = 0, podPoseInfo = null, podXY = { x: 0, y: 0 };
+  const NOZ_Y = 0.3;   // engine bell height above the pod's feet (three.js units)
   function podBuild() {
     pod = new THREE.Group();
-    pod.add(model(place === "mars" ? "nasa_viking" : "nasa_lm", 170));
-    const gc = document.createElement("canvas"); gc.width = 4; gc.height = 64; const gg = gc.getContext("2d"), gr = gg.createLinearGradient(0, 0, 0, 64); gr.addColorStop(0, "rgba(255,255,255,0)"); gr.addColorStop(0.5, "rgba(255,255,255,0.5)"); gr.addColorStop(1, "rgba(255,255,255,1)"); gg.fillStyle = gr; gg.fillRect(0, 0, 4, 64);
-    const gtex = new THREE.CanvasTexture(gc);
-    const mat = (c, o) => new THREE.MeshBasicMaterial({ color: c, map: gtex, transparent: true, opacity: o * 1.6, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false });
-    flame = new THREE.Mesh(new THREE.ConeGeometry(0.3, 1.9, 20, 1, true), mat(0xff8a2c, 0.3)); flame.rotation.x = Math.PI; flame.position.y = 0.5 - 0.95;
-    flameCore = new THREE.Mesh(new THREE.ConeGeometry(0.13, 1.1, 16, 1, true), mat(0xbfdcff, 0.6)); flameCore.rotation.x = Math.PI; flameCore.position.y = 0.5 - 0.55;
-    flameLight = new THREE.PointLight(0xffa24a, 0, 9); flameLight.position.y = 0.2;
-    pod.add(flame, flameCore, flameLight); groupWorld.add(pod); podKeep = false;
+    pod.add(model(place === "mars" ? "nasa_viking" : "nasa_lm", 170, { rot: Math.PI }));   // front (hatch and ladder) faces the base, to the north
+    const mk = (c, o) => new THREE.Sprite(new THREE.SpriteMaterial({ map: puffTexture(), color: c, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: o, fog: false }));
+    plume = []; for (let i = 0; i < 18; i++) { const s = mk(0xffffff, 0); pod.add(s); plume.push(s); }
+    flameLight = new THREE.PointLight(0xffa24a, 0, 11); flameLight.position.y = 0.25; pod.add(flameLight);
+    groundGlow = mk(0xff9a4a, 0); groundGlow.visible = false; groupWorld.add(groundGlow);
+    if (place === "mars") {   // parachute: red and white gores, like the Mars landers
+      const c = document.createElement("canvas"); c.width = 256; c.height = 16; const g = c.getContext("2d");
+      for (let k = 0; k < 16; k++) { g.fillStyle = k % 2 ? "#f4f1ea" : "#d9482b"; g.fillRect(k * 16, 0, 16, 16); }
+      const tx = new THREE.CanvasTexture(c); tx.wrapS = THREE.RepeatWrapping;
+      chute = new THREE.Mesh(new THREE.SphereGeometry(1.7, 32, 12, 0, Math.PI * 2, 0, Math.PI * 0.42), new THREE.MeshStandardMaterial({ map: tx, side: THREE.DoubleSide, roughness: 0.9, transparent: true }));
+      chute.visible = false; groupWorld.add(chute);
+      chuteLines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xeeeeee, transparent: true, opacity: 0.8 })); chuteLines.frustumCulled = false; chuteLines.visible = false; groupWorld.add(chuteLines);
+    }
+    if (place === "mars") {   // a ladder from the hatch porch to the ground
+      const lad = new THREE.Group(), rm = new THREE.MeshStandardMaterial({ color: 0xb9c0c8, metalness: 0.7, roughness: 0.35 });
+      [-0.1, 0.1].forEach(xx => { const r = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 1.0, 6), rm); r.position.set(xx, 0.26, -0.93); r.rotation.x = 0.43; lad.add(r); });
+      for (let k = 0; k < 9; k++) { const r = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.2, 6), rm); r.rotation.z = Math.PI / 2; const f = k / 8; r.position.set(0, 0.52 - f * 0.5, -0.64 - f * 0.58); lad.add(r); }
+      pod.add(lad);
+    }
+    groupWorld.add(pod); podKeep = false;
   }
   function setPod(on, x, y, h, fire, hide = true) {
     if (on && !pod) podBuild();
     podOn = !!on && hide; if (!pod) return;
     pod.visible = !!on || podKeep; if (on) pod.position.copy(v3(x, y, h));
+    podXY = { x, y }; podPoseInfo = { x, y, porch: { x, y: y - 64, h: 0.52 }, ladder: { x, y: y - 122 } };
     flameOn = fire ? 1 : 0;
-    if (on && fire && h < 6) { const k = 1 - h / 6; for (let i = 0; i < 3; i++) { const a = Math.random() * 6.28, p = puff(x + Math.cos(a) * 40, y + Math.sin(a) * 40, 0.9 + Math.random() * 0.6, undefined, 1.4, 0.15, 0.1 + Math.random() * 0.2); if (p) { p.vx = Math.cos(a) * (2.2 + k * 3); p.vz = Math.sin(a) * (2.2 + k * 3); } } }
+    if (on && fire && h < 7) {   // the exhaust hits the ground: a ring of dust and stones is blown outward
+      const k = 1 - h / 7;
+      for (let i = 0; i < 4; i++) { const a = Math.random() * 6.28, p = puff(x + Math.cos(a) * 30, y + Math.sin(a) * 30, 1.0 + Math.random() * 0.9, undefined, 1.8, 0.2, 0.08 + Math.random() * 0.25); if (p) { p.vx = Math.cos(a) * (2.6 + k * 4.5); p.vz = Math.sin(a) * (2.6 + k * 4.5); } }
+      if (Math.random() < 0.5) { const a = Math.random() * 6.28; throwRock(x + Math.cos(a) * 40, y + Math.sin(a) * 40, 0.1, Math.cos(a) * (220 + 300 * k), Math.sin(a) * (220 + 300 * k), 1.5 + Math.random() * 3.5, 0.04 + Math.random() * 0.07, 2.2); }
+    }
   }
-  function podStay(x, y) { podKeep = true; podOn = false; flameOn = 0; if (pod) { pod.visible = true; } solids.push({ x, y, r: 70 }); }
+  function podStay(x, y) { podKeep = true; podOn = false; flameOn = 0; if (pod) { pod.visible = true; } solids.push({ x, y, r: 75 }); }
   function flameTick(dt) {
-    if (!pod || !flame) return;
-    const f = flameOn, fl = 0.85 + Math.sin(t * 55) * 0.1 + Math.random() * 0.08;
-    flame.visible = flameCore.visible = f > 0; flame.scale.set(1 + Math.sin(t * 31) * 0.06, fl, 1); flameCore.scale.set(1, fl * 0.95, 1);
-    flameLight.intensity = f * (3.2 + Math.random() * 0.8);
+    if (!pod || !plume.length) return;
+    const f = flameOn, h = pod.position.y, L = Math.min(3.0, Math.max(0.15, h + NOZ_Y - 0.04)), n = plume.length;
+    for (let i = 0; i < n; i++) {
+      const s = i / (n - 1), sp = plume[i];
+      sp.visible = f > 0; sp.position.set((Math.random() - 0.5) * 0.06 * s, NOZ_Y - s * L, (Math.random() - 0.5) * 0.06 * s);
+      const spread = 1 + Math.max(0, 1 - h / 1.4) * 1.6, sz = (0.3 + s * 0.85) * spread * (0.9 + Math.random() * 0.2);
+      sp.scale.set(sz, sz, 1); sp.material.color.setHex(s < 0.2 ? 0xdff0ff : s < 0.5 ? 0xffb15a : 0xd8641e);
+      sp.material.opacity = f * (1 - s * 0.82) * (0.7 + Math.random() * 0.3);
+    }
+    flameLight.intensity = f * (3.4 + Math.random() * 0.9);
+    if (groundGlow) { const hv = h < 9 && f > 0; groundGlow.visible = hv; if (hv) { groundGlow.position.set(podXY.x * K, 0.07, podXY.y * K); const k = 1 - h / 9; groundGlow.scale.set(1.6 + k * 4, 1.6 + k * 4, 1); groundGlow.material.opacity = 0.65 * k; } }
+    if (chute) {
+      if (chuteMode === 1) { chute.visible = chuteLines.visible = true; chute.material.opacity = 1; chuteT = 0; const sw = Math.sin(t * 1.3) * 0.12; chute.position.set(pod.position.x + sw * 2, pod.position.y + 6.4, pod.position.z); chute.rotation.z = sw * 0.6; }
+      else if (chuteMode === 2) { chuteT += dt; chute.position.x += 1.4 * dt; chute.position.z += 0.7 * dt; chute.position.y += 1.2 * dt * (chuteT < 2 ? 1 : 0.2); chute.rotation.z += dt * 0.25; chute.material.opacity = Math.max(0, 1 - chuteT / 2.6); chuteLines.visible = false; if (chuteT > 2.6) chute.visible = false; }
+      else { chute.visible = chuteLines.visible = false; }
+      if (chuteLines && chuteLines.visible) { const arr = [], cx = chute.position.x, cy = chute.position.y, cz = chute.position.z, top = [pod.position.x, pod.position.y + 1.45, pod.position.z]; for (let k = 0; k < 16; k++) { const a = (k / 16) * Math.PI * 2, rr = 1.7 * Math.sin(Math.PI * 0.42); arr.push(cx + Math.cos(a) * rr, cy + 1.7 * Math.cos(Math.PI * 0.42), cz + Math.sin(a) * rr, top[0], top[1], top[2]); } chuteLines.geometry.setAttribute("position", new THREE.Float32BufferAttribute(arr, 3)); }
+    }
   }
   function podShrink() {}
   return {
     get scene() { return scene; }, get base() { return base; },
-    puppetCrew(i, s) { if (crew[i]) crew[i].puppet = s; }, puppetPlayer(s) { if (!P) return; if (s) { Object.assign(P, { x: s.x, y: s.y, z: s.z || 0, face: s.face, animOverride: s.anim || "Walk", hidden: !!s.hidden, moving: false }); } else { P.animOverride = null; P.hidden = false; } },
-    crewGo(i, x, y) { if (crew[i]) crewGo(crew[i], x, y); }, crewList() { return crew.map((c, i) => ({ i, x: c.x, y: c.y, arrived: c.arrived, moving: c.moving, job: c.job })); }, setCrewJob(i, job) { if (crew[i]) crew[i].job = job; },
-    throwRock, get stormLevel() { return stormI; }, podPose() { return podPoseInfo; }, setChute(m) { chuteMode = m; },
+    puppetCrew(i, s) { const c = crew[i]; if (!c) return; if (!s && c.puppet) { c.x = c.puppet.x; c.y = c.puppet.y; c.path = []; c.moving = false; } c.puppet = s || null; }, puppetPlayer(s) { if (!P) return; if (s) { Object.assign(P, { x: s.x, y: s.y, z: s.z || 0, face: s.face, animOverride: s.anim || "Walk", hidden: !!s.hidden, moving: false }); } else { P.animOverride = null; P.hidden = false; } },
+    crewGo(i, x, y) { if (crew[i]) crewGo(crew[i], x, y); }, crewSet(i, x, y) { const c = crew[i]; if (c) { c.x = x; c.y = y; c.path = []; c.puppet = null; } }, crewList() { return crew.map((c, i) => ({ i, x: c.x, y: c.y, arrived: c.arrived, moving: c.moving, job: c.job })); }, setCrewJob(i, job) { if (crew[i]) crew[i].job = job; },
+    crewDebug() { return crew.map(c => ({ v: c.rig.obj.visible, p: c.rig.obj.position.toArray().map(q => +(q / K).toFixed(0)), pu: c.puppet ? JSON.stringify(c.puppet) : null })); }, get pose() { return POSE; }, throwRock, get stormLevel() { return stormI; }, podPose() { return podPoseInfo; }, setChute(m) { chuteMode = m; },
     get modelsLoaded() { return modelsDone; }, modelsPromise,
     remote, localState, setPod, podStay, podShrink, snapshot, hero, HERO, texturesReady,
     setQuality(q) { if (!renderer) return; sun.castShadow = q === "high"; renderer.setPixelRatio(q === "high" ? Math.min(2, window.devicePixelRatio || 1) : 1); resize(); },
