@@ -106,3 +106,7 @@ Made by Team Pheonix with AI-assisted coding. Every team member should read, tes
 - **Auto-save and Continue**: the title screen offers "Continue" with your sol number.
 - **Languages**: English and Hindi (हिन्दी). Switch from the title menu or Settings. Add a language by writing `js/lang-xx.js` (see `js/lang-hi.js`). Story narration and the longer event paragraphs stay in English for now.
 - Fix: an invisible damage-flash overlay had blocked mouse and touch input.
+
+## Credits
+
+See `assets/CREDITS.md` (also in the game: title menu, Credits). Summary: NASA DONKI data and NASA 3D Resources (public domain), Kenney and Quaternius models (CC0), Poly Haven textures (CC0), Solar System Scope maps (CC BY 4.0), ElevenLabs voice and music (AI generated), three.js and PeerJS (MIT), Lucide (ISC), Google Fonts (OFL). Built with help from Claude (Anthropic). Not endorsed by NASA.

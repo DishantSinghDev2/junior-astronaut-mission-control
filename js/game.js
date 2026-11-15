@@ -127,6 +127,7 @@
           <button class="t-item" data-go="sources">${I("satellite")} NASA data</button>
           <button class="t-item" data-act="suit">${I("user")} My astronaut</button>
           <button class="t-item" data-act="lang-toggle">${I("globe")} English / हिन्दी</button>
+          <button class="t-item" data-act="credits">${I("info")} Credits</button>
           <button class="t-item" data-act="settings">${I("settings")} Settings</button>
         </nav>
         <div class="t-suit"><h3>Suit status</h3>
@@ -1175,10 +1176,26 @@
       ${row("Larger text", "tog-text", big, big ? "on" : "off")}
       ${row("High quality graphics", "tog-gfx", profile.q === "high", profile.q)}
       <p class="vid-note">Music: original tracks made with ElevenLabs. Models: Kenney and Quaternius (CC0).</p>
+      <button class="btn-secondary sm" data-act="credits">Credits</button>
       <button class="btn-secondary sm" data-act="reset-progress">Reset saved progress</button>
       <button class="btn-primary" data-act="${S && !S.over && !S.attract && !S.intro ? "resume" : "close-sw"}">Done</button></div>`;
   }
   document.addEventListener("input", e => { if (e.target.id === "vol-m") Sound.setMusicVol(e.target.value / 100); else if (e.target.id === "vol-s") { Sound.setSfxVol(e.target.value / 100); Sound.sfx("gain"); } });
+  const CREDITS = [
+    ["NASA data and facts", [["DONKI space weather", "Real coronal mass ejection records from NASA / CCMC (api.nasa.gov, ccmc.gsfc.nasa.gov/tools/DONKI)", "NASA Open Data"], ["Mission facts", "Phoenix, LCROSS, MRO, MOXIE, ISS water recovery, Veggie, 3D Printing in Zero-G, ARISS, Apollo, Human Research Program", "NASA public material"]]],
+    ["3D models", [["NASA 3D Resources", "Apollo Lunar Module, Viking Lander, Perseverance rover, Habitat Demonstration Unit, DSN 34 m antenna, Ingenuity", "Public domain · github.com/nasa/NASA-3D-Resources"], ["Space Kit", "Kenney (kenney.nl): base modules, corridors, props, rocks", "CC0 1.0"], ["Astronaut and Solar Panel", "Quaternius (quaternius.com, via poly.pizza)", "CC0 1.0"]]],
+    ["Textures and maps", [["Poly Haven", "Ground textures: Gray Rocks, Red Laterite Soil Stones (polyhaven.com)", "CC0 1.0"], ["Solar System Scope", "Mars, Moon and Earth maps, based on NASA data (solarsystemscope.com/textures), resized", "CC BY 4.0"]]],
+    ["Audio", [["Narration and voice lines", "ElevenLabs text-to-speech, voice Atlas", "AI generated"], ["Music", "Lobby, exploration, storm and drop tracks made with ElevenLabs Music v2.5", "AI generated"], ["Sound effects", "Synthesized live with the Web Audio API", "No sample files"]]],
+    ["Software, fonts and icons", [["three.js r128", "3D engine (threejs.org)", "MIT"], ["PeerJS 1.5.4", "Squad play (peerjs.com)", "MIT"], ["Lucide", "Icons (lucide.dev)", "ISC"], ["Orbitron, Rajdhani, Noto Sans Devanagari", "Fonts from Google Fonts", "SIL OFL 1.1"]]],
+    ["AI assistance", [["Claude (Anthropic)", "Helped write the code, the Hindi translation and parts of the text. Team Pheonix reviewed it and is responsible for the project.", ""]]]
+  ];
+  function creditsModal() {
+    openModal(`<div class="credits-box"><h2>Credits</h2>
+      <p class="vid-note"><b>Lunar Outpost</b> is a student project by Team Pheonix for the NASA International Space Apps Challenge 2026. It is not made, sponsored or endorsed by NASA.</p>
+      ${CREDITS.map(([h, rows]) => `<h3>${h}</h3><ul>${rows.map(([n, d, l]) => `<li><b>${n}</b> <span>${d}</span>${l ? ` <em>${l}</em>` : ""}</li>`).join("")}</ul>`).join("")}
+      <p class="vid-note">Full list: assets/CREDITS.md</p>
+      <button class="btn-primary" data-act="resume">Close</button></div>`);
+  }
   const SUITS = [["Orange", 0xff6b35], ["Blue", 0x4c8dff], ["Green", 0x2ecc71], ["Pink", 0xff6bd5], ["Purple", 0xa070ff], ["Gold", 0xffc94a], ["Red", 0xe0453a], ["Teal", 0x1ed6c4]];
   function suitModal() {
     const hex = c => "#" + c.toString(16).padStart(6, "0");
@@ -1272,6 +1289,7 @@
       case "lb-leave": MP.leave(); World.remote.clear(); return lobby();
       case "drop-skip": if (S && S.drop) endDrop(); return;
       case "lang-toggle": { const c = I18N.codes, i = c.indexOf(I18N.lang); return I18N.set(c[(i + 1) % c.length]); }
+      case "credits": return creditsModal();
       case "shop": return shop("pause");
       case "shop-done": closeModal(); if (S && S.shopFrom === "day") { S.shopFrom = null; advanceDay(); } return;
       case "suit": return suitModal();
