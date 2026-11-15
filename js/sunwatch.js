@@ -62,7 +62,7 @@ window.SunWatch = (() => {
     }).join("");
 
     root.innerHTML = `
-      <div class="sw">
+      <div class="sw-main">
         <div class="sw-tabs" role="tablist">
           <button class="chip-btn ${tab === "live" ? "on" : ""}" data-tab="live" ${Donki.state.live.length ? "" : "disabled"}>Last 60 days ${Donki.state.live.length ? "· Live" : "· offline"}</button>
           <button class="chip-btn ${tab === "archive" ? "on" : ""}" data-tab="archive">Biggest storms 2024–25 · Archived</button>
