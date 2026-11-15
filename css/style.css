@@ -244,6 +244,7 @@ body.menu #hud, body.menu .w-mini, body.menu .w-label, body.menu .w-guide, body.
 #game canvas#world { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
 #hud { position: absolute; inset: 0; pointer-events: none; }
 #hud > * { pointer-events: auto; }
+#hud > .dmg-flash { pointer-events: none; }
 
 .h-tasks { position: absolute; left: 1rem; top: 1rem; width: 20rem; padding: .75rem .85rem .85rem; }
 .ribbon { display: flex; justify-content: space-between; align-items: center; font: 700 .85rem var(--f-ui); letter-spacing: .22em; text-transform: uppercase; color: var(--gold); margin: 0 0 .5rem; padding-bottom: .45rem; border-bottom: 1px solid var(--line-2); }
@@ -572,3 +573,4 @@ kbd { display: inline-block; min-width: 1.5em; padding: .05em .4em; margin: 0 .1
 
 .wm { position: fixed; left: 50%; bottom: .2rem; transform: translateX(-50%); z-index: 90; pointer-events: none; font: 700 .62rem var(--f-disp); letter-spacing: .3em; color: rgba(255,255,255,.4); text-shadow: 0 1px 4px rgba(0,0,0,.8); white-space: nowrap; user-select: none; }
 @media (max-width: 600px) { .wm { font-size: .5rem; letter-spacing: .18em; } }
+#g-toast, #g-ticker, .ticker { pointer-events: none; }
