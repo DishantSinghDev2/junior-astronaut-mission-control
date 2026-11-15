@@ -97,3 +97,12 @@ Made by Team Pheonix with AI-assisted coding. Every team member should read, tes
 - **BGMI-style start**: lobby, countdown and a drop-pod descent with an altitude read-out, then touchdown.
 - **New ElevenLabs music**: lobby, exploration, storm and drop tracks, with separate music / effects volume sliders.
 - A small **watermark** (Lunar Outpost · Team Pheonix) on every screen.
+
+## Update: realism, long missions and languages
+
+- **Real NASA hardware**: Apollo Lunar Module (and Viking lander on Mars) for the landing, Perseverance as the rover, the Habitat Demonstration Unit as the science lab, a Deep Space Network 34 m antenna as the radio dish, Ingenuity on Mars. See `assets/CREDITS.md`.
+- **New landing**: your lander descends with a plume, kicks up dust and stays on the ground as your landing pad.
+- **Long missions**: choose Short (8), Standard (14) or Expedition (24) sols. Life gets a little harder every sol, later sols have 4-5 tasks, chapters mark the story, and **Research and upgrades** (spend science after each sol) keep long runs interesting. 9 more real-fact events (22 total).
+- **Auto-save and Continue**: the title screen offers "Continue" with your sol number.
+- **Languages**: English and Hindi (हिन्दी). Switch from the title menu or Settings. Add a language by writing `js/lang-xx.js` (see `js/lang-hi.js`). Story narration and the longer event paragraphs stay in English for now.
+- Fix: an invisible damage-flash overlay had blocked mouse and touch input.

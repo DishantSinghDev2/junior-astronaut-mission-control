@@ -587,3 +587,8 @@ kbd { display: inline-block; min-width: 1.5em; padding: .05em .4em; margin: 0 .1
 .up-card { text-align: left; display: grid; gap: .25rem; padding: .7rem .9rem; border-radius: 12px; border: 1px solid var(--line-2); background: rgba(255,255,255,.05); color: #fff; cursor: pointer; font-family: var(--f-ui); } .up-card:hover:not(:disabled) { border-color: var(--gold); box-shadow: 0 0 16px rgba(255,201,74,.3); } .up-card:disabled { opacity: .5; cursor: not-allowed; } .up-card.maxed { border-color: #4cffb0; opacity: .8; }
 .up-card b { font: 800 .95rem var(--f-disp); letter-spacing: .06em; } .up-ic .ic { width: 1.4rem; height: 1.4rem; color: var(--cy); } .up-d { font-size: .9rem; color: #c9dcf0; } .up-foot { display: flex; justify-content: space-between; align-items: center; } .up-foot em { font: 800 .9rem var(--f-disp); color: var(--gold); font-style: normal; }
 .pips { display: flex; gap: .25rem; } .pips s { width: .9rem; height: .35rem; border-radius: 3px; background: rgba(255,255,255,.2); text-decoration: none; } .pips s.on { background: #4cffb0; }
+
+html[lang="hi"] { --f-ui: "Noto Sans Devanagari", Rajdhani, sans-serif; --f-disp: "Noto Sans Devanagari", Orbitron, sans-serif; }
+html[lang="hi"] body, html[lang="hi"] button, html[lang="hi"] input { font-family: "Noto Sans Devanagari", Rajdhani, sans-serif; }
+html[lang="hi"] * { letter-spacing: normal !important; text-transform: none !important; }
+.langs { display: inline-flex; gap: .4rem; } .lang-b { border: 1px solid var(--line-2); background: rgba(255,255,255,.06); color: #fff; padding: .3rem .8rem; border-radius: 8px; cursor: pointer; font: 700 .9rem var(--f-ui); } .lang-b.on { border-color: var(--cy); background: rgba(76,192,255,.25); }

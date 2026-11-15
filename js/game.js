@@ -126,6 +126,7 @@
           <button class="t-item" data-go="video">${I("sparkles")} Watch tutorial</button>
           <button class="t-item" data-go="sources">${I("satellite")} NASA data</button>
           <button class="t-item" data-act="suit">${I("user")} My astronaut</button>
+          <button class="t-item" data-act="lang-toggle">${I("globe")} English / हिन्दी</button>
           <button class="t-item" data-act="settings">${I("settings")} Settings</button>
         </nav>
         <div class="t-suit"><h3>Suit status</h3>
@@ -136,7 +137,7 @@
       </div>
       <div class="t-right">
         <div class="t-mission"><span class="eyebrow">Current mission</span>
-          <h3>Survive 8 days at ${esc(siteName)}</h3>
+          <h3>Survive ${DAYS} ${D.places[dest].dayWord}s at ${esc(siteName)}</h3>
           <p>Keep Life Support, Power and Shielding above zero while real NASA solar storms roll in.</p>
           ${shots.moon ? `<img src="${shots.moon}" alt="">` : ""}</div>
       </div>
@@ -682,6 +683,7 @@
     const t = e.target.closest ? e.target : null; if (!t) return;
     const b = t.closest("[data-say]"); if (b) return saySend(+b.dataset.say);
     const u = t.closest("[data-buy]"); if (u) return buy(u.dataset.buy);
+    const lg = t.closest("[data-lang]"); if (lg) return I18N.set(lg.dataset.lang);
     const l = t.closest("[data-len]"); if (l) { profile.len = l.dataset.len; DAYS = LENGTHS[profile.len]; saveProfile(); document.querySelectorAll("[data-len]").forEach(x => x.classList.toggle("on", x === l)); }
   });
   function loop(ts) {
@@ -1167,6 +1169,7 @@
     if (S) { S.modalOpen = true; }
     mbox.innerHTML = `<div class="pause"><h2>Settings</h2>
       ${row("Sound and music", "tog-sound", !Sound.muted, Sound.muted ? "off" : "on")}
+      <div class="set-row"><span>Language</span><span class="langs">${I18N.codes.map(c => `<button class="lang-b${c === I18N.lang ? " on" : ""}" data-lang="${c}">${I18N.names[c]}</button>`).join("")}</span></div>
       <div class="set-row vol"><label for="vol-m">Music</label><input type="range" id="vol-m" min="0" max="100" value="${Math.round(Sound.musicVol * 100)}"></div>
       <div class="set-row vol"><label for="vol-s">Sound effects</label><input type="range" id="vol-s" min="0" max="100" value="${Math.round(Sound.sfxVol * 100)}"></div>
       ${row("Larger text", "tog-text", big, big ? "on" : "off")}
@@ -1189,13 +1192,13 @@
   function suitSave() { const v = ($("#suit-name") || {}).value || ""; profile.name = v.trim().slice(0, 14) || "Commander"; saveProfile(); closeModal(); if (MP.role !== "off") MP.setSuit(profile.suit); if (lobbyOn) lobby(); else if (!S || S.attract) home(); }
   /* ---------- coach: sensible step-by-step hints in the first mission ---------- */
   const COACH = [
-    { t: "Move with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> (or drag the joystick on a phone). Walk a few steps!", ok: c => Math.hypot(World.player.x - c.x0, World.player.y - c.y0) > 160 },
-    { t: "Look around: hold the mouse and drag, or press <kbd>Q</kbd> / <kbd>R</kbd> to turn the camera. Scroll to zoom.", ok: c => Math.abs(World.yaw - c.yaw0) > 0.45 },
-    { t: "Press <kbd>Space</kbd> (or the JUMP button) to jump. Gravity here is much weaker than on Earth!", ok: () => S.stats.jumps >= 1 },
-    { t: "Your tasks are at the top left. Follow the <b class='yellow'>yellow arrow ➤</b> to the first one.", ok: c => c.t > 14 || S.tasks.some(t => t.n > 0 || t.done) },
-    { t: "Stand next to a glowing object and press <kbd>E</kbd> (or the USE button). Some jobs need you to <b>hold</b> it.", ok: () => S.stats.tasksDone >= 1 || S.stats.cleaned >= 1 || S.stats.rocks >= 1 || S.stats.fixed >= 1 || S.stats.harvested >= 1 },
-    { t: "Watch the four meters at the bottom left. <b class='green'>▲ green</b> = rising, <b class='red'>▼ red</b> = falling. If one reaches zero, you lose!", ok: c => c.t > 9 },
-    { t: "When the <b class='red'>storm alarm</b> rings, run to the <b>Storm Shelter</b> (the round building at the bottom). You are ready, Commander!", ok: c => c.t > 8 }
+    { t: "Move with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> (or drag the joystick on a phone). Walk a few steps!", hi: "<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> से चलें (फ़ोन पर जॉयस्टिक खींचें)। कुछ कदम चलें!", ok: c => Math.hypot(World.player.x - c.x0, World.player.y - c.y0) > 160 },
+    { t: "Look around: hold the mouse and drag, or press <kbd>Q</kbd> / <kbd>R</kbd> to turn the camera. Scroll to zoom.", hi: "चारों ओर देखें: माउस दबाकर खींचें, या कैमरा घुमाने के लिए <kbd>Q</kbd> / <kbd>R</kbd> दबाएँ। ज़ूम के लिए स्क्रॉल करें।", ok: c => Math.abs(World.yaw - c.yaw0) > 0.45 },
+    { t: "Press <kbd>Space</kbd> (or the JUMP button) to jump. Gravity here is much weaker than on Earth!", hi: "कूदने के लिए <kbd>Space</kbd> (या JUMP बटन) दबाएँ। यहाँ गुरुत्व पृथ्वी से बहुत कम है!", ok: () => S.stats.jumps >= 1 },
+    { t: "Your tasks are at the top left. Follow the <b class='yellow'>yellow arrow ➤</b> to the first one.", hi: "आपके काम ऊपर बाईं ओर हैं। पहले काम तक पहुँचने के लिए <b class='yellow'>पीले तीर ➤</b> का पीछा करें।", ok: c => c.t > 14 || S.tasks.some(t => t.n > 0 || t.done) },
+    { t: "Stand next to a glowing object and press <kbd>E</kbd> (or the USE button). Some jobs need you to <b>hold</b> it.", hi: "किसी चमकती चीज़ के पास खड़े हों और <kbd>E</kbd> (या USE बटन) दबाएँ। कुछ कामों में इसे <b>दबाए रखना</b> पड़ता है।", ok: () => S.stats.tasksDone >= 1 || S.stats.cleaned >= 1 || S.stats.rocks >= 1 || S.stats.fixed >= 1 || S.stats.harvested >= 1 },
+    { t: "Watch the four meters at the bottom left. <b class='green'>▲ green</b> = rising, <b class='red'>▼ red</b> = falling. If one reaches zero, you lose!", hi: "नीचे बाईं ओर चार मीटर देखें। <b class='green'>▲ हरा</b> = बढ़ रहा है, <b class='red'>▼ लाल</b> = घट रहा है। कोई मीटर शून्य हुआ तो आप हार जाएँगे!", ok: c => c.t > 9 },
+    { t: "When the <b class='red'>storm alarm</b> rings, run to the <b>Storm Shelter</b> (the round building at the bottom). You are ready, Commander!", hi: "जब <b class='red'>तूफ़ान अलार्म</b> बजे, <b>तूफ़ान आश्रय</b> (नीचे का गोल भवन) में दौड़ें। आप तैयार हैं, कमांडर!", ok: c => c.t > 8 }
   ];
   function coachTick(dt) {
     if (profile.tutorDone || !S.tasks || S.day !== 1) { const e = $("#coach"); if (e && !e.hidden) e.hidden = true; return; }
@@ -1206,7 +1209,7 @@
     const st = COACH[c.i];
     if (el._i !== c.i) {
       el._i = c.i; el.hidden = false;
-      el.innerHTML = `<div class="co-top"><span>TIP ${c.i + 1} / ${COACH.length}</span><button data-act="coach-skip" aria-label="Skip tips">Skip tips</button></div><p>${st.t}</p><div class="co-dots">${COACH.map((_, j) => `<i class="${j < c.i ? "d" : j === c.i ? "on" : ""}"></i>`).join("")}</div>`;
+      el.innerHTML = `<div class="co-top"><span>TIP ${c.i + 1} / ${COACH.length}</span><button data-act="coach-skip" aria-label="Skip tips">Skip tips</button></div><p>${I18N.lang === "hi" && st.hi ? st.hi : st.t}</p><div class="co-dots">${COACH.map((_, j) => `<i class="${j < c.i ? "d" : j === c.i ? "on" : ""}"></i>`).join("")}</div>`;
     }
     if (st.ok(c)) { c.held += dt; if (c.held > 0.8) { c.i++; c.t = 0; c.held = 0; c.x0 = World.player.x; c.y0 = World.player.y; c.yaw0 = World.yaw; Sound.sfx("gain"); } } else c.held = 0;
   }
@@ -1268,6 +1271,7 @@
       case "lb-copy": try { navigator.clipboard.writeText(MP.code); } catch (e) {} { const b = $("#lb-codebig"); if (b) b.classList.add("copied"); } return;
       case "lb-leave": MP.leave(); World.remote.clear(); return lobby();
       case "drop-skip": if (S && S.drop) endDrop(); return;
+      case "lang-toggle": { const c = I18N.codes, i = c.indexOf(I18N.lang); return I18N.set(c[(i + 1) % c.length]); }
       case "shop": return shop("pause");
       case "shop-done": closeModal(); if (S && S.shopFrom === "day") { S.shopFrom = null; advanceDay(); } return;
       case "suit": return suitModal();
