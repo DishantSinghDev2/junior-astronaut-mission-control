@@ -17,21 +17,22 @@ window.World = (() => {
     "machine_barrelLarge", "machine_wireless", "satelliteDish_large", "satelliteDish_detailed", "supports_high", "platform_large",
     "rock", "rock_largeA", "rock_largeB", "rocks_smallA", "meteor_detailed", "crater", "craterLarge", "rock_crystals",
     "rock_crystalsLargeA", "rocket_baseA", "rocket_fuelA", "rocket_topA", "rocket_finsA", "barrels", "desk_computer",
-    "astronaut", "solar_panel"];
+    "astronaut", "solar_panel",
+    "nasa_lm", "nasa_viking", "nasa_pers", "nasa_hdu1", "nasa_ingen", "nasa_dsn34"];
   const PAL = {
     mars: {
       sky: [[0, "#8f6f62"], [0.30, "#bf906c"], [0.47, "#e3b58c"], [0.5, "#e8bb93"], [0.52, "#c98f66"], [1, "#a87850"]],
       fog: 0xe0ad84, fogNear: 28, fogFar: 125, stars: false,
       tex: "mars", tint: 0xffffff, ground: [[176, 78, 42], [214, 118, 70], [132, 52, 28]],
       rock: 0xa4482a, rockTrack: 0x8a3b22, rockDark: 0x6e2a16,
-      sunColor: 0xffe2c2, sunI: 2.5, sunDir: [-6, 6.2, 8], hemiSky: 0xffd6b0, hemiGround: 0x6a3a22, hemiI: 0.75, exposure: 1.0
+      sunColor: 0xffe2c2, sunI: 3.1, sunDir: [-6, 6.2, 8], hemiSky: 0xffc9a0, hemiGround: 0x5a3020, hemiI: 0.5, exposure: 0.8
     },
     moon: {
       sky: [[0, "#000003"], [0.4, "#03040c"], [0.5, "#0a0d1e"], [0.52, "#000"], [1, "#000"]],
       fog: 0x070914, fogNear: 45, fogFar: 170, stars: true,
       tex: "moon", tint: 0xe4e7f2, ground: [[104, 106, 118], [140, 142, 154], [76, 78, 92]],
       rock: 0x8a8d9c, rockTrack: 0x70738a, rockDark: 0x4b4e60,
-      sunColor: 0xfff3e0, sunI: 3.3, sunDir: [-6, 5, 8], hemiSky: 0x7f93cc, hemiGround: 0x2a2c38, hemiI: 0.42, exposure: 0.95
+      sunColor: 0xfff3e0, sunI: 3.8, sunDir: [-6, 5, 8], hemiSky: 0x7f93cc, hemiGround: 0x2a2c38, hemiI: 0.3, exposure: 0.85
     }
   };
 
@@ -66,7 +67,7 @@ window.World = (() => {
           if (!o.isMesh) return;
           o.castShadow = true; o.receiveShadow = true;
           if (o.material.name === "_defaultMat") { o.material = new THREE.MeshPhysicalMaterial({ color: 0xa9d8ff, metalness: 0, roughness: 0.06, transparent: true, opacity: 0.26, side: THREE.DoubleSide, depthWrite: false }); o.castShadow = false; }
-          else if (o.material.metalness !== undefined) { o.material.envMapIntensity = 1.0; o.material.metalness = Math.min(o.material.metalness, 0.75); o.material.roughness = Math.min(o.material.roughness, 0.55); }
+          else if (o.material.metalness !== undefined && !n.startsWith("nasa_")) { o.material.envMapIntensity = 1.0; o.material.metalness = Math.min(o.material.metalness, 0.75); o.material.roughness = Math.min(o.material.roughness, 0.55); }
         });
         done++; onProgress && onProgress(done / MODELS.length); res();
       }, undefined, () => { done++; onProgress && onProgress(done / MODELS.length); res(); });
@@ -160,7 +161,7 @@ window.World = (() => {
     add({ id: "green", kind: "green", x: 1500, y: 1130, r: 200, label: "Greenhouse" });
     put(model("hangar_roundGlass", 250, { rot: Math.PI / 2 }), 1500, 1130); solidCircle(1500, 1130, 105);
     add({ id: "lab", kind: "lab", x: 2100, y: 1130, r: 170, label: "Science Lab" });
-    put(model("structure_detailed", 170), 2100, 1130); solidBox(2100, 1130, 170, 170);
+    put(model("nasa_hdu1", 190, { rot: 0.4 }), 2100, 1130); solidBox(2100, 1130, 170, 170);
     put(model("desk_computer", 70, { rot: Math.PI }), 2100, 1240);
     add({ id: "life", kind: "life", x: 2110, y: 1420, r: 170, label: "Life Support" });
     put(model("machine_generatorLarge", 150, { rot: -Math.PI / 2 }), 2080, 1420); solidBox(2080, 1420, 150, 120);
@@ -179,7 +180,8 @@ window.World = (() => {
       panelMeshes[i] = m; solidBox(px, py, 120, 60); i++;
     }
     add({ id: "dish", kind: "dish", x: 2440, y: 1120, r: 140, label: "Radio Dish" });
-    put(model("satelliteDish_large", 190, { rot: -2.4 }), 2440, 1120); solidCircle(2440, 1120, 70);
+    put(model("nasa_dsn34", 250, { rot: -2.4 }), 2440, 1120); solidCircle(2440, 1120, 80);
+    if (placeId === "mars") put(model("nasa_ingen", 60, { rot: 1.2 }), 1960, 380);
     add({ id: "pad", kind: "pad", x: 2380, y: 1640, r: 110, label: "Rover charger" });
     noShadow(put(model("platform_large", 190), 2380, 1640, -0.03));
     // remote outposts
@@ -192,9 +194,8 @@ window.World = (() => {
     add({ id: "relay", kind: "relay", x: 3150, y: 2230, r: 150, label: "Relay Tower", far: true });
     put(model("supports_high", 130), 3150, 2230); put(model("satelliteDish_detailed", 110, { rot: 2.4 }), 3150, 2230, 1.3); solidCircle(3150, 2230, 60);
     add({ id: "lander", kind: "lander", x: 440, y: 2240, r: 170, label: "Old Lander", far: true });
-    const rk = new THREE.Group();
-    [["rocket_finsA", 150, 0], ["rocket_baseA", 140, 0.32], ["rocket_fuelA", 80, 1.55], ["rocket_topA", 80, 1.95]].forEach(([n, s, h]) => { const m = model(n, s); m.position.y = h; rk.add(m); });
-    rk.rotation.z = 0.12; put(rk, 440, 2240); solidCircle(440, 2240, 80);
+    const rk = new THREE.Group(); rk.add(model(place === "mars" ? "nasa_viking" : "nasa_lm", 170, { rot: 0.6 }));
+    rk.rotation.z = 0.1; put(rk, 440, 2240); solidCircle(440, 2240, 85);
     // light beacons over the four remote mission spots, so you can spot them from far away
     beacons = [];
     [["weather", 0x4cc0ff], ["ice", 0x9fe3ff], ["relay", 0xffc94a], ["lander", 0xb07cff]].forEach(([id, col]) => {
@@ -226,7 +227,7 @@ window.World = (() => {
       const rg = rig(c); groupWorld.add(rg.obj);
       return { rig: rg, x, y, face: 0, tx: null, ty: null, wait: Math.random() * 3, home: { x, y }, stuck: 0 };
     });
-    roverMesh = model("rover", 150); groupWorld.add(roverMesh);
+    roverMesh = model("nasa_pers", 150); groupWorld.add(roverMesh);
     P = { x: 1800, y: 1480, z: 0, vz: 0, face: 0, moving: false, target: null, inRover: false };
     rover = { x: 2380, y: 1640, a: -Math.PI / 2, battery: 100, speed: 0 };
     holdProg = 0; holdId = null; cine = null; focusV = null;
@@ -620,7 +621,7 @@ window.World = (() => {
     if (!partGroup || parts.length > 260) return;
     const mat = new THREE.SpriteMaterial({ map: puffTexture(), color: color || (place === "mars" ? 0xd28a5c : 0xc9cbd6), transparent: true, depthWrite: false, opacity: 0.8 });
     const s = new THREE.Sprite(mat); s.position.copy(v3(x, y, h)); s.scale.setScalar(size * 0.5); partGroup.add(s);
-    parts.push({ sprite: s, life: 1, max: life, size, rise, vx: (Math.random() - 0.5) * 0.3, vz: (Math.random() - 0.5) * 0.3 });
+    const pt = { sprite: s, life: 1, max: life, size, rise, vx: (Math.random() - 0.5) * 0.3, vz: (Math.random() - 0.5) * 0.3 }; parts.push(pt); return pt;
   }
   function burst(kind, x, y, n = 10) { for (let i = 0; i < n; i++) puff(x + (Math.random() - 0.5) * 50, y + (Math.random() - 0.5) * 50, 0.25, kind === "spark" ? 0xffd54a : undefined, 0.7, 1.2); }
   function updateParts(dt) {
@@ -719,7 +720,7 @@ window.World = (() => {
       const o = objects.find(q => q.id === b.id), near = Math.hypot(o.x - P.x, o.y - P.y) < 220, tgt = v.guide && v.guide.id === b.id;
       b.g.visible = !near && !cine; b.beam.material.opacity = tgt ? 0.34 + Math.sin(t * 4) * 0.08 : 0.13; b.ring.scale.setScalar(1 + (tgt ? Math.sin(t * 4) * 0.08 : 0)); b.ring.material.opacity = tgt ? 0.8 : 0.35;
     });
-    remotesDraw(dt);
+    remotesDraw(dt); flameTick(dt);
     overlays(v);
   }
   function placeRig(r, x, y, face, anim, dt, z = 0) {
@@ -876,19 +877,36 @@ window.World = (() => {
     return { x: Math.round(P.x), y: Math.round(P.y), z: +(P.z || 0).toFixed(2), face: +P.face.toFixed(2), inRover: P.inRover, rov: true, rx: Math.round(rover.x), ry: Math.round(rover.y), ra: +rover.a.toFixed(2),
       anim: P.z > 0.05 ? "Wave" : holdId ? "Interact" : P.moving ? "Run" : "Idle" };
   }
-  /* ---------------- drop pod (the landing cinematic) ---------------- */
-  function setPod(on, x, y, h, fire) {
-    if (on && !pod) {
-      pod = new THREE.Group();
-      [["rocket_baseA", 120, 0], ["rocket_fuelA", 70, 0.9], ["rocket_topA", 70, 1.25]].forEach(([n, s, hh]) => { const m = model(n, s); m.position.y = hh; pod.add(m); });
-      pod.add(model("rocket_finsA", 130)); groupWorld.add(pod);
-    }
-    podOn = !!on; if (pod) { pod.visible = podOn; if (on) pod.position.copy(v3(x, y, h)); }
-    if (on && fire) for (let i = 0; i < 2; i++) puff(x + (Math.random() - 0.5) * 20, y + (Math.random() - 0.5) * 20, 0.8, 0xffa040, 0.5, -0.5, h - 0.1);
+  /* ---------------- landing cinematic: a real lander (Apollo LM / Viking) with a rocket plume ---------------- */
+  let flame = null, flameCore = null, flameLight = null, flameOn = 0, podKeep = false;
+  function podBuild() {
+    pod = new THREE.Group();
+    pod.add(model(place === "mars" ? "nasa_viking" : "nasa_lm", 170));
+    const gc = document.createElement("canvas"); gc.width = 4; gc.height = 64; const gg = gc.getContext("2d"), gr = gg.createLinearGradient(0, 0, 0, 64); gr.addColorStop(0, "rgba(255,255,255,0)"); gr.addColorStop(0.5, "rgba(255,255,255,0.5)"); gr.addColorStop(1, "rgba(255,255,255,1)"); gg.fillStyle = gr; gg.fillRect(0, 0, 4, 64);
+    const gtex = new THREE.CanvasTexture(gc);
+    const mat = (c, o) => new THREE.MeshBasicMaterial({ color: c, map: gtex, transparent: true, opacity: o * 1.6, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false });
+    flame = new THREE.Mesh(new THREE.ConeGeometry(0.3, 1.9, 20, 1, true), mat(0xff8a2c, 0.3)); flame.rotation.x = Math.PI; flame.position.y = 0.5 - 0.95;
+    flameCore = new THREE.Mesh(new THREE.ConeGeometry(0.13, 1.1, 16, 1, true), mat(0xbfdcff, 0.6)); flameCore.rotation.x = Math.PI; flameCore.position.y = 0.5 - 0.55;
+    flameLight = new THREE.PointLight(0xffa24a, 0, 9); flameLight.position.y = 0.2;
+    pod.add(flame, flameCore, flameLight); groupWorld.add(pod); podKeep = false;
   }
-  function podShrink(k) { if (pod) pod.scale.setScalar(Math.max(0.001, 1 - k)); if (pod && k <= 0) pod.scale.setScalar(1); }
+  function setPod(on, x, y, h, fire, hide = true) {
+    if (on && !pod) podBuild();
+    podOn = !!on && hide; if (!pod) return;
+    pod.visible = !!on || podKeep; if (on) pod.position.copy(v3(x, y, h));
+    flameOn = fire ? 1 : 0;
+    if (on && fire && h < 6) { const k = 1 - h / 6; for (let i = 0; i < 3; i++) { const a = Math.random() * 6.28, p = puff(x + Math.cos(a) * 40, y + Math.sin(a) * 40, 0.9 + Math.random() * 0.6, undefined, 1.4, 0.15, 0.1 + Math.random() * 0.2); if (p) { p.vx = Math.cos(a) * (2.2 + k * 3); p.vz = Math.sin(a) * (2.2 + k * 3); } } }
+  }
+  function podStay(x, y) { podKeep = true; podOn = false; flameOn = 0; if (pod) { pod.visible = true; } solids.push({ x, y, r: 70 }); }
+  function flameTick(dt) {
+    if (!pod || !flame) return;
+    const f = flameOn, fl = 0.85 + Math.sin(t * 55) * 0.1 + Math.random() * 0.08;
+    flame.visible = flameCore.visible = f > 0; flame.scale.set(1 + Math.sin(t * 31) * 0.06, fl, 1); flameCore.scale.set(1, fl * 0.95, 1);
+    flameLight.intensity = f * (3.2 + Math.random() * 0.8);
+  }
+  function podShrink() {}
   return {
-    remote, localState, setPod, podShrink, snapshot, hero, HERO, texturesReady,
+    remote, localState, setPod, podStay, podShrink, snapshot, hero, HERO, texturesReady,
     setQuality(q) { if (!renderer) return; sun.castShadow = q === "high"; renderer.setPixelRatio(q === "high" ? Math.min(2, window.devicePixelRatio || 1) : 1); resize(); },
     setSuit(c) { suit = c; if (playerRig && groupWorld) { const o = playerRig.obj, pos = o.position.clone(), ry = o.rotation.y, sc = o.scale.x, vis = o.visible; groupWorld.remove(o); playerRig = rig(c); playerRig.obj.position.copy(pos); playerRig.obj.rotation.y = ry; playerRig.obj.scale.setScalar(sc); playerRig.obj.visible = vis; groupWorld.add(playerRig.obj); } },
     get yaw() { return camYaw; },

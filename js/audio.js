@@ -76,6 +76,8 @@ window.Sound = (() => {
     wire: () => tone(1000, 0.06, "square", 0.05),
     gain: () => { tone(740, 0.1, "triangle", 0.06); tone(988, 0.14, "triangle", 0.05, 0, 0.07); },
     loss: () => { tone(220, 0.22, "sawtooth", 0.05, -90); },
+    thrust: () => { const c = ctx(); if (!c || muted) return; const len = c.sampleRate * 5, buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0); let lp = 0; for (let i = 0; i < len; i++) { lp += ((Math.random() * 2 - 1) - lp) * 0.06; d[i] = lp * 3; }
+      const s = c.createBufferSource(), g = c.createGain(), f = c.createBiquadFilter(); s.buffer = buf; f.type = "lowpass"; f.frequency.value = 420; const t0 = c.currentTime; g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.5 * sfxVol, t0 + 0.8); g.gain.setValueAtTime(0.5 * sfxVol, t0 + 3.6); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 4.9); s.connect(f).connect(g).connect(c.destination); s.start(t0); },
     jump: () => { tone(300, 0.28, "sine", 0.1, 420); tone(620, 0.2, "triangle", 0.05, 300, 0.05); },
     land: () => { tone(140, 0.14, "sine", 0.12, -60); tone(90, 0.2, "triangle", 0.08, -30, 0.02); }
   };

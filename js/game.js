@@ -438,44 +438,55 @@
     last = performance.now();
   }
   /* ---------- the drop: your pod falls from orbit, BGMI-style ---------- */
-  const DROP_WAIT = 2.4, DROP_FALL = 5.0, DROP_END = 8.9;
+  const DROP_WAIT = 2.6, DROP_FALL = 5.4, H0 = 24;
   function beginDrop() {
-    S.drop = { t: 0, landed: false, hatch: false, prevH: 60 };
+    S.drop = { t: 0, landed: false, hatch: false, prevH: H0, lx: 1800, ly: 1990, burn: false };
     hud.style.visibility = "hidden"; $("#g-ticker").hidden = true;
     const el = document.createElement("div"); el.id = "drop"; el.className = "drop-hud";
     el.innerHTML = `<div class="dr-top"><small>DEPLOYING TO</small><b>${esc(S.site.name)}</b><em>${S.placeId === "moon" ? "THE MOON" : "MARS"} · ${esc(profile.name)}</em></div>
       <div class="dr-count" id="dr-count"></div>
-      <div class="dr-alt"><div><small>ALTITUDE</small><b id="dr-alt">12,000 m</b></div><div><small>SPEED</small><b id="dr-spd">0 m/s</b></div></div>
+      <div class="dr-alt"><div><small>ALTITUDE</small><b id="dr-alt">12000 m</b></div><div><small>SPEED</small><b id="dr-spd">0 m/s</b></div><div><small>ENGINE</small><b id="dr-eng">STANDBY</b></div></div>
       <div class="dr-flash" id="dr-flash"></div><button class="dr-skip" data-act="drop-skip">Skip ▸</button>`;
     gameEl.appendChild(el);
-    const P = World.player; World.setPod(true, P.x, P.y, 60, false);
-    World.setCine({ pos: { x: P.x + 300, y: P.y + 420, h: 62 }, look: { x: P.x, y: P.y, h: 60 }, fov: 55, speed: 8, jump: true });
+    const P = World.player; P.x = S.drop.lx + 130; P.y = S.drop.ly + 80;
+    World.setPod(true, S.drop.lx, S.drop.ly, H0, false);
+    World.setCine({ pos: { x: S.drop.lx + 330, y: S.drop.ly + 300, h: 1.0 }, look: { x: S.drop.lx, y: S.drop.ly, h: H0 * 0.8 }, fov: 60, speed: 8, jump: true });
+  }
+  function landNow() {
+    const d = S.drop, P = World.player; if (!d || d.hatch) return; d.hatch = true;
+    World.setPod(true, d.lx, d.ly, 0, false, false); World.podStay(d.lx, d.ly);
+    for (const [dx, dy] of [[130, 80], [-130, 80], [120, -90], [0, 140]]) if (World.free(d.lx + dx, d.ly + dy)) { P.x = d.lx + dx; P.y = d.ly + dy; break; }
+    P.face = Math.atan2(d.lx - P.x, d.ly - P.y) + Math.PI;
   }
   function dropTick(dt) {
-    const d = S.drop, P = World.player; d.t += dt;
-    const s = clamp((d.t - DROP_WAIT) / DROP_FALL, 0, 1), h = s < 1 ? 60 * Math.pow(1 - s, 2.2) : 0;
-    const cnt = $("#dr-count");
-    if (d.t < DROP_WAIT) cnt.textContent = d.t < 0.4 ? "" : String(Math.max(1, Math.ceil(DROP_WAIT - d.t - 0.2)));
-    else if (!d.landed) cnt.textContent = d.t < DROP_WAIT + 0.7 ? "DROP!" : "";
-    if (d.t >= DROP_WAIT && !d.dropped) { d.dropped = true; Sound.sfx("engine"); }
-    const spd = Math.max(0, (d.prevH - h) / Math.max(dt, 0.001) * 100 * 0.2); d.prevH = h;
-    $("#dr-alt").textContent = Math.round(h / 60 * 12000 / 10) * 10 + " m"; $("#dr-spd").textContent = Math.round(spd) + " m/s";
-    if (!d.hatch) World.setPod(true, P.x, P.y, h, s > 0 && s < 1);
-    const sh = s > 0.88 && s < 1 ? (Math.random() - 0.5) * 0.12 : 0;
-    World.setCine({ pos: { x: P.x + 300 + sh * 300, y: P.y + 420, h: h + (s > 0.8 ? 1.4 : 2.6) + sh }, look: { x: P.x, y: P.y, h: h + 0.6 }, fov: 55, speed: 8 });
-    if (s >= 1 && !d.landed) {
-      d.landed = true; d.tl = d.t; cnt.textContent = "TOUCHDOWN"; Sound.sfx("land");
-      for (let i = 0; i < 26; i++) { const a = (i / 26) * 6.28; World.burst("dust", P.x + Math.cos(a) * 90, P.y + Math.sin(a) * 90, 2); }
-      const f = $("#dr-flash"); f.classList.add("on");
+    const d = S.drop; d.t += dt;
+    const s = clamp((d.t - DROP_WAIT) / DROP_FALL, 0, 1), cnt = $("#dr-count");
+    const h0 = H0 - DROP_WAIT * 1.2;
+    const h = d.t < DROP_WAIT ? H0 - d.t * 1.2 : h0 * Math.pow(1 - s, 1.6);
+    if (d.t < DROP_WAIT) cnt.textContent = d.t < 0.5 ? "" : String(Math.max(1, Math.ceil(DROP_WAIT - d.t)));
+    else if (!d.landed) cnt.textContent = d.t < DROP_WAIT + 0.9 ? "IGNITION" : "";
+    if (d.t >= DROP_WAIT && !d.burn) { d.burn = true; Sound.sfx("thrust"); $("#dr-eng").textContent = "BURN"; $("#dr-eng").classList.add("hot"); }
+    const spd = Math.max(0, (d.prevH - h) / Math.max(dt, 0.001) * 6.3); d.prevH = h;
+    $("#dr-alt").textContent = Math.round(h / H0 * 12000 / 10) * 10 + " m"; $("#dr-spd").textContent = Math.round(spd) + " m/s";
+    if (!d.hatch) {
+      const bounce = d.landed ? Math.max(0, 0.08 * Math.exp(-4 * (d.t - d.tl)) * Math.sin(20 * (d.t - d.tl))) : 0;
+      World.setPod(true, d.lx, d.ly, h + bounce, d.burn && !d.landed);
     }
-    if (d.landed && d.t > d.tl + 1.1 && !d.hatch) { d.hatch = true; cnt.textContent = ""; World.burst("spark", P.x, P.y, 14); }
-    if (d.hatch) { const k = clamp((d.t - d.tl - 1.1) / 0.5, 0, 1); World.podShrink(k); if (k >= 1) World.setPod(false); }
-    if (d.t > d.tl + 1.9 && d.landed) endDrop();
+    const shake = d.landed && d.t - d.tl < 0.7 ? (Math.random() - 0.5) * 0.12 : 0;
+    World.setCine({ pos: { x: d.lx + 330 + shake * 200, y: d.ly + 300, h: 1.0 + shake }, look: { x: d.lx, y: d.ly, h: Math.max(0.6, h * 0.75) }, fov: h > 10 ? 60 : 50, speed: 5 });
+    if (s >= 1 && !d.landed) {
+      d.landed = true; d.tl = d.t; cnt.textContent = "TOUCHDOWN"; Sound.sfx("land"); $("#dr-eng").textContent = "SHUTDOWN"; $("#dr-eng").classList.remove("hot");
+      for (let i = 0; i < 40; i++) { const a = (i / 40) * 6.28; const p = World.burst("dust", d.lx + Math.cos(a) * 50, d.ly + Math.sin(a) * 50, 2); }
+      $("#dr-flash").classList.add("on");
+    }
+    if (d.landed && d.t > d.tl + 1.3 && !d.hatch) { landNow(); cnt.textContent = ""; World.burst("spark", d.lx + 120, d.ly + 80, 8); }
+    if (d.landed && d.t > d.tl + 2.9) endDrop();
   }
   function endDrop() {
     if (!S || !S.drop) return;
+    landNow();
     S.drop = null; const el = $("#drop"); if (el) el.remove();
-    World.setPod(false); World.podShrink(0); World.setCine(null);
+    World.setCine(null);
     hud.style.visibility = "";
     Sound.music("explore"); startDay(); toast(`Touchdown at ${esc(S.site.name)}! Your ${S.place.dayWord} 1 begins.`, 4500);
     last = performance.now();
@@ -1177,7 +1188,7 @@
       case "lb-join": { const c = ($("#lb-code") || {}).value || ""; if (c.trim().length < 4) return lobbyMsg("Type the 5-letter squad code."); const m = $("#lb-msg"); if (m) { m.textContent = "Joining…"; m.classList.remove("err"); } return MP.join(c, myInfo(), err => { if (err) return lobbyMsg(err); lobbyRefresh(); }); }
       case "lb-copy": try { navigator.clipboard.writeText(MP.code); } catch (e) {} { const b = $("#lb-codebig"); if (b) b.classList.add("copied"); } return;
       case "lb-leave": MP.leave(); World.remote.clear(); return lobby();
-      case "drop-skip": if (S && S.drop) { World.podShrink(0); endDrop(); } return;
+      case "drop-skip": if (S && S.drop) endDrop(); return;
       case "suit": return suitModal();
       case "suit-save": return suitSave();
       case "coach-skip": profile.tutorDone = true; saveProfile(); { const e = $("#coach"); if (e) e.hidden = true; } return;

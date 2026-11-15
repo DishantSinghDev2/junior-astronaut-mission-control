@@ -574,3 +574,4 @@ kbd { display: inline-block; min-width: 1.5em; padding: .05em .4em; margin: 0 .1
 .wm { position: fixed; left: 50%; bottom: .2rem; transform: translateX(-50%); z-index: 90; pointer-events: none; font: 700 .62rem var(--f-disp); letter-spacing: .3em; color: rgba(255,255,255,.4); text-shadow: 0 1px 4px rgba(0,0,0,.8); white-space: nowrap; user-select: none; }
 @media (max-width: 600px) { .wm { font-size: .5rem; letter-spacing: .18em; } }
 #g-toast, #g-ticker, .ticker { pointer-events: none; }
+.dr-alt b.hot { color: #ff9a3c; text-shadow: 0 0 14px #ff9a3c; }
