@@ -117,7 +117,7 @@
         <div><h1>Lunar Outpost</h1><div class="sub">EXPLORE · ANALYSE · SURVIVE</div></div></div>
       <div class="t-top">
         <span class="t-stat" title="Stars earned">${I("star")} ${profile.stars}</span>
-        <span class="t-stat" title="Science sent to Earth">${I("flask-conical")} ${profile.science}</span>
+        <span class="t-stat" title="Science sent to Earth">${I("flask-conical")} ${Math.round(profile.science)}</span>
         <span class="t-stat" title="Missions flown">${I("flag")} ${profile.missions}</span>
       </div>
       <div class="t-left">
@@ -1090,12 +1090,12 @@
     S.over = true; closeModal(); clearRun();
     Sound.music(null); Sound.voice(success ? "vo-win" : "vo-lose");
     const L = Math.round(S.life), P = Math.round(S.power), Sh = Math.round(S.shield);
-    const crit = [success, success && S.science >= Math.round(60 * DAYS / 8), success && Math.min(L, P, Sh) >= 40];
+    const crit = [success, success && Math.round(S.science) >= Math.round(60 * DAYS / 8), success && Math.min(L, P, Sh) >= 40];
     const stars = crit.filter(Boolean).length;
-    const final = S.science * 3 + L + P + Sh + (success ? 100 : 0) + S.stats.tasksDone * 10;
+    const final = Math.round(S.science) * 3 + L + P + Sh + (success ? 100 : 0) + S.stats.tasksDone * 10;
     const st = S.stats;
     const xpGain = Math.round(final / 4);
-    profile.xp += xpGain; profile.stars += stars; profile.missions++; profile.science += S.science; profile.lastSite = S.site.name; saveProfile();
+    profile.xp += xpGain; profile.stars += stars; profile.missions++; profile.science = Math.round(profile.science + S.science); profile.lastSite = S.site.name; saveProfile();
     const learned = [
       "Shielding uses power, and power is limited. Every choice has a gain and a cost.",
       `You scrubbed solar panels ${st.cleaned} time${st.cleaned === 1 ? "" : "s"}. Dust really cuts power${S.placeId === "mars" ? " on Mars" : ""}.`,
@@ -1117,7 +1117,7 @@
       <div class="res-grid">
         <div class="card"><h2>Score</h2>
           <div class="score-row"><span>Final</span><b class="yellow">${final}</b></div>
-          <div class="score-row"><span>Science</span><b>${S.science}</b></div>
+          <div class="score-row"><span>Science</span><b>${Math.round(S.science)}</b></div>
           <div class="score-row"><span>Life · Power · Shield</span><b>${L} · ${P} · ${Sh}</b></div>
           <div class="score-row"><span>Tasks completed</span><b>${st.tasksDone}</b></div>
           ${chart()}
@@ -1209,7 +1209,7 @@
     });
     $("#h-sol").innerHTML = `<small>${S.place.dayWord.toUpperCase()}</small><b>${S.day}</b><i>of ${DAYS}</i>`;
     $("#h-medal").style.setProperty("--p", Math.min(100, (S.t / DAY_LEN) * 100).toFixed(1));
-    $("#h-sci").innerHTML = `${I("star")} ${S.science} science`;
+    $("#h-sci").innerHTML = `${I("star")} ${Math.floor(S.science)} science`;
     { const fc = $("#h-fc"); const on = S.forecast && S.forecast.day >= S.day && !(S.forecast.day === S.day && S.stormStarted); fc.hidden = !on; if (on) fc.innerHTML = `${I("cloud-fog")} Storm forecast: ${cap(S.place.dayWord)} ${S.forecast.day} · ${S.forecast.speed.toLocaleString()} km/s`; }
     const doneN = S.tasks.filter(t => t.done).length;
     const html = `<div class="ribbon"><span>${cap(S.place.dayWord)} ${S.day} tasks</span><span>${doneN}/${S.tasks.length}</span></div>

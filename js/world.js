@@ -759,7 +759,7 @@ window.World = (() => {
     placeRig(playerRig, P.x, P.y, P.face, P.animOverride || (heroMode ? ((t % 14) < 2.6 && t > 3 ? "Wave" : "Idle") : P.z > 0.05 ? "Wave" : holdId ? "Interact" : P.moving ? "Run" : "Idle"), dt, P.z || 0);
     { const into = -(Math.sin(P.face) * WIND.x + Math.cos(P.face) * WIND.y); playerRig.obj.rotation.x += ((outP ? 0.34 * stormI * (into > 0 ? into : into * 0.5) + 0.05 * stormI : 0) - playerRig.obj.rotation.x) * Math.min(1, dt * 6); }
     if (playerRig.cur && playerRig.acts[playerRig.cur]) playerRig.acts[playerRig.cur].timeScale = outP && P.moving ? 1 - 0.45 * stormI : 1;
-    playerRig.obj.visible = !P.inRover && where() !== "shelter" && !podOn && !P.hidden;
+    playerRig.obj.visible = !P.inRover && !podOn && !P.hidden;
     ringMesh.visible = playerRig.obj.visible && !cine; ringMesh.position.copy(v3(P.x, P.y, 0.02)); ringMesh.scale.setScalar((1 + Math.sin(t * 4) * 0.06) / (1 + (P.z || 0) * 0.8));
     crew.forEach(c => {
       const pu = c.puppet, cx = pu ? pu.x : c.x, cy = pu ? pu.y : c.y, cz = pu ? pu.z || 0 : 0, out = !BaseKit.roomAt(base, cx, cy) && !pu;
