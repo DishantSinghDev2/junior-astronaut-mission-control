@@ -325,7 +325,7 @@ window.World = (() => {
     const sd = sunDirV().multiplyScalar(80);
     const sunM = new THREE.Mesh(new THREE.SphereGeometry(5, 16, 12), new THREE.MeshBasicMaterial({ color: new THREE.Color(pal.sunColor).multiplyScalar(place === "moon" ? 14 : 9), fog: false }));
     sunM.position.copy(sd); es.add(sunM);
-    if (earthMesh) { const e = new THREE.Mesh(earthMesh.geometry, earthMesh.material); e.scale.setScalar(11); e.position.set(Math.sin(0.62) * Math.cos(0.30) * 86, Math.sin(0.30) * 86, -Math.cos(0.62) * Math.cos(0.30) * 86); es.add(e); }
+    /* Earth is left out of the environment bake: its phase shader has no light vector yet and would write NaN into the map */
     const ground = new THREE.Mesh(new THREE.CircleGeometry(150, 24), new THREE.MeshBasicMaterial({ color: new THREE.Color(pal.ground[1][0] / 255, pal.ground[1][1] / 255, pal.ground[1][2] / 255).multiplyScalar(0.55), side: THREE.DoubleSide }));
     ground.rotation.x = -Math.PI / 2; ground.position.y = -1; es.add(ground);
     const pm = new THREE.PMREMGenerator(rend);
@@ -743,8 +743,8 @@ window.World = (() => {
     const sd = sunDirV();
     sun.position.copy(target).addScaledVector(sd, 24); sun.target.position.copy(target);
     Object.assign(sun.shadow.camera, { left: -reach, right: reach, top: reach, bottom: -reach, far: 60 }); sun.shadow.camera.updateProjectionMatrix();
-    const dusk = sunState.dusk, lf = sunState.light, low = Math.max(0, Math.min(1, 1 - sunState.el / 16));
-    sun.intensity = pal.sunI * lf * (v && v.storm ? 0.7 : 1); hemi.intensity = pal.hemiI * (0.3 + 0.7 * lf) + (sunState.night ? (place === "moon" ? 0.05 + 0.2 * sunState.earth : 0.07) : 0);
+    const dusk = sunState.dusk, lf = Math.max(sunState.light, place === "moon" ? 0.62 : 0.5), low = Math.max(0, Math.min(1, 1 - sunState.el / 16));
+    sun.intensity = pal.sunI * lf * (v && v.storm ? 0.7 : 1); hemi.intensity = pal.hemiI * (0.3 + 0.7 * lf) + (sunState.night ? (place === "moon" ? 0.3 + 0.2 * sunState.earth : 0.22) : (place === "moon" ? 0.18 : 0.08));
     sun.color.setHex(v && v.storm ? 0xffa060 : pal.sunColor);
     if (place === "mars") sun.color.lerp(new THREE.Color(0x8fb6ff), low * 0.75);   // Mars sunsets are blue
     else sun.color.lerp(new THREE.Color(0xffd8b0), low * 0.35);
